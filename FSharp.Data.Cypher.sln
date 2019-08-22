@@ -5,6 +5,8 @@ VisualStudioVersion = 16.0.29123.88
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705}") = "FSharp.Data.Cypher", "FSharp.Data.Cypher\FSharp.Data.Cypher.fsproj", "{0042E604-A7BC-4838-A7F1-F2A945429F72}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FSharp.Data.Cypher.Test", "FSharp.Data.Cypher.Test\FSharp.Data.Cypher.Test.fsproj", "{EFE95D91-2791-4F8A-800E-A2079A6AEA45}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{0042E604-A7BC-4838-A7F1-F2A945429F72}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0042E604-A7BC-4838-A7F1-F2A945429F72}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0042E604-A7BC-4838-A7F1-F2A945429F72}.Release|Any CPU.Build.0 = Release|Any CPU
+		{EFE95D91-2791-4F8A-800E-A2079A6AEA45}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{EFE95D91-2791-4F8A-800E-A2079A6AEA45}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{EFE95D91-2791-4F8A-800E-A2079A6AEA45}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{EFE95D91-2791-4F8A-800E-A2079A6AEA45}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

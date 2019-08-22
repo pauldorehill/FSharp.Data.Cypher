@@ -70,8 +70,10 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : IReadOnlyDictionary<
     member __.QuerySteps = querySteps
     member __.Query = MakeQuery " "
     member __.QueryMultiline = MakeQuery Environment.NewLine
+    
+module Cypher =
 
-    static member private RunTransaction (cypher : Cypher<'T>) (driver : IDriver) (accessMode : AccessMode) (map : 'T -> 'U) =
+    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (accessMode : AccessMode) (map : 'T -> 'U) =
         async {
             use session = driver.Session accessMode
             try
@@ -83,11 +85,17 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : IReadOnlyDictionary<
                 session.CloseAsync() |> ignore 
         }
 
-    static member WriteMap (driver : IDriver) map (cypher : Cypher<'T>) = Cypher.RunTransaction cypher driver AccessMode.Write map
-    static member Write (driver : IDriver) (cypher : Cypher<'T>) = Cypher.WriteMap driver id cypher
-    static member ReadMap (driver : IDriver) map (cypher : Cypher<'T>) = Cypher.RunTransaction cypher driver AccessMode.Read map
-    static member Read (driver : IDriver) (cypher : Cypher<'T>) = Cypher.ReadMap driver id cypher
-    static member Spoof (di : IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
+    let query (cypher : Cypher<'T>) = cypher.Query
+    
+    let writeMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Write map
+
+    let write (driver : IDriver) (cypher : Cypher<'T>) = writeMap driver id cypher
+
+    let readMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Read map
+
+    let read (driver : IDriver) (cypher : Cypher<'T>) = readMap driver id cypher
+
+    let spoof (di : IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
 [<AutoOpen>]
 module AsciiStep =
@@ -203,10 +211,12 @@ module private ClauseHelpers =
     
     let makePropertyKey (v : Var) (pi : PropertyInfo) = v.Name + "." + pi.Name
 
+    let fixStringValue typ o = if typ = typeof<string> then string o |> sprintf "\"%s\"" else string o
+
     let extractStatement (exp : Expr) =
         match exp with
-        | Value (o, _) -> string o
-        | Var v -> v.Name
+        | Value (o, typ) -> fixStringValue typ o
+        | Var v -> v.Name // string needs to be escaped
         | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
         // When variable is outside the builder
         | PropertyGet (None, pi, _) -> pi.Name
@@ -229,7 +239,8 @@ module private ReturnClause =
     let extractValue (di : IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
-            let o = Deserialization.fixTypes typ di.[string o]
+            let key = fixStringValue typ o
+            let o = Deserialization.fixTypes typ di.[key]
             Expr.Value(o, typ)
 
         | Var v -> 
