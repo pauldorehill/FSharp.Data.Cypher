@@ -29,29 +29,34 @@ module Deserialization =
         else 
             rtnObj :?> 'T |> Seq.singleton
 
+    let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj |> box
+    let makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq |> box
+    let makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq |> box
+    let makeSet<'T when 'T : comparison > rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq |> box
+
     // Test of collections
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let makeCollections(propTyp : Type) (rtnObj : obj) =
-        if propTyp = typeof<seq<string>> then checkCollection<string> rtnObj |> box
-        elif propTyp = typeof<seq<int64>> then checkCollection<int64> rtnObj |> box
-        elif propTyp = typeof<seq<int>> then checkCollection<int> rtnObj |> box
-        elif propTyp = typeof<seq<float>> then checkCollection<float> rtnObj |> box
-        elif propTyp = typeof<seq<bool>> then checkCollection<bool> rtnObj |> box
-        elif propTyp = typeof<array<string>> then checkCollection<string> rtnObj |> Array.ofSeq |> box
-        elif propTyp = typeof<array<int64>> then checkCollection<int64> rtnObj |> Array.ofSeq |> box
-        elif propTyp = typeof<array<int>> then checkCollection<int> rtnObj |> Array.ofSeq |> box
-        elif propTyp = typeof<array<float>> then checkCollection<float> rtnObj |> Array.ofSeq |> box
-        elif propTyp = typeof<array<bool>> then checkCollection<bool> rtnObj |> Array.ofSeq |> box
-        elif propTyp = typeof<list<string>> then checkCollection<string> rtnObj |> List.ofSeq |> box
-        elif propTyp = typeof<list<int64>> then checkCollection<int64> rtnObj |> List.ofSeq |> box
-        elif propTyp = typeof<list<int>> then checkCollection<int> rtnObj |> List.ofSeq |> box
-        elif propTyp = typeof<list<float>> then checkCollection<float> rtnObj |> List.ofSeq |> box
-        elif propTyp = typeof<list<bool>> then checkCollection<bool> rtnObj |> List.ofSeq |> box
-        elif propTyp = typeof<Set<string>> then checkCollection<string> rtnObj |> Set.ofSeq |> box
-        elif propTyp = typeof<Set<int64>> then checkCollection<int64> rtnObj |> Set.ofSeq |> box
-        elif propTyp = typeof<Set<int>> then checkCollection<int> rtnObj |> Set.ofSeq |> box
-        elif propTyp = typeof<Set<float>> then checkCollection<float> rtnObj |> Set.ofSeq |> box
-        elif propTyp = typeof<Set<bool>> then checkCollection<bool> rtnObj |> Set.ofSeq |> box
+        if propTyp = typeof<seq<string>> then makeSeq<string> rtnObj
+        elif propTyp = typeof<seq<int64>> then makeSeq<int64> rtnObj
+        elif propTyp = typeof<seq<int>> then makeSeq<int> rtnObj
+        elif propTyp = typeof<seq<float>> then makeSeq<float> rtnObj
+        elif propTyp = typeof<seq<bool>> then makeSeq<bool> rtnObj
+        elif propTyp = typeof<array<string>> then makeArray<string> rtnObj
+        elif propTyp = typeof<array<int64>> then makeArray<int64> rtnObj
+        elif propTyp = typeof<array<int>> then makeArray<int> rtnObj
+        elif propTyp = typeof<array<float>> then makeArray<float> rtnObj
+        elif propTyp = typeof<array<bool>> then makeArray<bool> rtnObj
+        elif propTyp = typeof<list<string>> then makeList<string> rtnObj
+        elif propTyp = typeof<list<int64>> then makeList<int64> rtnObj
+        elif propTyp = typeof<list<int>> then makeList<int> rtnObj
+        elif propTyp = typeof<list<float>> then makeList<float> rtnObj
+        elif propTyp = typeof<list<bool>> then makeList<bool> rtnObj
+        elif propTyp = typeof<Set<string>> then makeSet<string> rtnObj
+        elif propTyp = typeof<Set<int64>> then makeSet<int64> rtnObj
+        elif propTyp = typeof<Set<int>> then makeSet<int> rtnObj
+        elif propTyp = typeof<Set<float>> then makeSet<float> rtnObj
+        elif propTyp = typeof<Set<bool>> then makeSet<bool> rtnObj
         else 
             propTyp.Name
             |> sprintf "Unsupported collection type: %s"
