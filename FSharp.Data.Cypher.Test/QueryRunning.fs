@@ -131,7 +131,7 @@ module ``Complex Queries with Classes`` =
     open ``Movie Graph As Classes``
 
     [<Fact>]
-    let ``Can do string, int deserialization`` () = // Failing as not built collection deserializer
+    let ``Can do string, int deserialization`` () =
         cypher {
             for m in Graph.Movie do
             for a in Graph.ActedIn do

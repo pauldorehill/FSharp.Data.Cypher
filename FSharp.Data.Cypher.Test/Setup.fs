@@ -64,7 +64,7 @@ module ``Movie Graph As Classes`` =
                 |> List.map NodeLabel
                 |> Some
        
-    type ActedIn(roles : string) =
+    type ActedIn(roles : string list) =
         member __.roles = roles
         interface IFSRelationship with
             member __.Label = Some (RelationshipLabel "ACTED_IN")
