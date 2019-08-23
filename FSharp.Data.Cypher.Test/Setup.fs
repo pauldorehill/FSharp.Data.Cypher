@@ -19,7 +19,7 @@ module ``Movie Graph As Records`` =
           tagline : string option
           released : int }
         interface IFSNode with
-            member __.Labels = Some [ NodeLabel "Movie" ]
+            member __.Labels = Some [ Label "Movie" ]
     
     type Person =
         { born : int
@@ -27,18 +27,18 @@ module ``Movie Graph As Records`` =
         interface IFSNode with
             member __.Labels =
                 [ "Person" ]
-                |> List.map NodeLabel
+                |> List.map Label
                 |> Some
        
     type ActedIn =
         { roles : string list }
         interface IFSRelationship with
-            member __.Label = Some (RelationshipLabel "ACTED_IN")
+            member __.Label = Some (Label "ACTED_IN")
     
     type Directed =
         { forceToRecord : string option }// it becomes a class otherwise
         interface IFSRelationship with
-            member __.Label = Some (RelationshipLabel "DIRECTED")
+            member __.Label = Some (Label "DIRECTED")
 
     type Graph =
         static member Movie : Query<Movie> = NA
@@ -53,7 +53,7 @@ module ``Movie Graph As Classes`` =
         member __.tagline = tagline
         member __.released = released
         interface IFSNode with
-            member __.Labels = Some [ NodeLabel "Movie" ]
+            member __.Labels = Some [ Label "Movie" ]
 
     type Person(born : int, name : string) =
         member __.born = born 
@@ -61,17 +61,17 @@ module ``Movie Graph As Classes`` =
         interface IFSNode with
             member __.Labels =
                 [ "Person" ]
-                |> List.map NodeLabel
+                |> List.map Label
                 |> Some
        
     type ActedIn(roles : string list) =
         member __.roles = roles
         interface IFSRelationship with
-            member __.Label = Some (RelationshipLabel "ACTED_IN")
+            member __.Label = Some (Label "ACTED_IN")
     
     type Directed() =
         interface IFSRelationship with
-            member __.Label = Some (RelationshipLabel "DIRECTED")
+            member __.Label = Some (Label "DIRECTED")
 
     type Graph =
         static member Movie : Query<Movie> = NA

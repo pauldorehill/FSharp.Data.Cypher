@@ -15,21 +15,16 @@ type Query<'T> = NA
 exception InvalidMatchClause of string
 exception InvalidReturnClause of string
 
-type NodeLabel = 
-    | NodeLabel of string
-    member this.Value = match this with | NodeLabel x -> x
-    override this.ToString() = this.Value
-
-type RelationshipLabel = 
-    | RelationshipLabel of string
-    member this.Value = match this with | RelationshipLabel x -> x
+type Label = 
+    | Label of string
+    member this.Value = match this with | Label x -> x
     override this.ToString() = this.Value
 
 type IFSNode =
-    abstract member Labels : NodeLabel list option
+    abstract member Labels : Label list option
 
 type IFSRelationship =
-    abstract member Label : RelationshipLabel option
+    abstract member Label : Label option
 
 // This is a hack to enforce correct Types on operators while allowing chaining
 // due to operator precendence can't find a better way
@@ -79,6 +74,14 @@ module CypherResult =
 
     let results (cr : CypherResult<'T>) = cr.Results
     let summary (cr : CypherResult<'T>) = cr.Summary
+
+module Label =
+    
+    let forRelationship (value : string) = Some (Label value)
+    
+    let forNode (values : string list) = values |> List.map Label |> Some
+
+    let forQuery (l : Label) = sprintf " :%s" l.Value
 
 module Cypher =
 
@@ -154,7 +157,7 @@ module private MatchClause =
             (t :?> IFSNode).Labels
             |> Option.map (fun xs ->
                 xs
-                |> List.map (fun l -> sprintf " :%s" l.Value)
+                |> List.map Label.forQuery
                 |> String.concat "")
             |> Option.defaultValue ""
             |> sprintf "(%s%s)" name
@@ -162,7 +165,7 @@ module private MatchClause =
         elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
             (t :?> IFSRelationship).Label
-            |> Option.map (fun l -> sprintf " :%s" l.Value)
+            |> Option.map Label.forQuery
             |> Option.defaultValue ""
             |> sprintf "[%s%s]" name
         else 
@@ -216,7 +219,7 @@ module private MatchClause =
         | _ -> 
             expr
             |> sprintf "Step was not a Lambda as expected : %A"
-             |> invalidMatchClause
+            |> invalidMatchClause
  
 module private ClauseHelpers =  
     
