@@ -10,7 +10,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Deserialization.fs" />
+    <Compile Include="Graph.fs" />
+    <Compile Include="Serialize.fs" />
     <Compile Include="Cypher.fs" />
   </ItemGroup>
 

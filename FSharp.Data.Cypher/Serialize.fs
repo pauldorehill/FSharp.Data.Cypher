@@ -1,6 +1,7 @@
 ﻿namespace FSharp.Data.Cypher
 
 open System
+open System.Collections
 open System.Reflection
 open FSharp.Reflection
 open Neo4j.Driver.V1
@@ -11,24 +12,25 @@ module Deserialization =
 
     let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
 
+    // Driver returns a System.Collections.Generic.List`1[System.Object]
     let checkCollection<'T> (rtnObj : obj) = 
         if isNull rtnObj then Seq.empty
-        elif rtnObj.GetType() = typeof<Collections.Generic.List<obj>> then
+        elif rtnObj.GetType() = typeof<Generic.List<obj>> then
             rtnObj 
-            :?> Collections.Generic.List<obj>
+            :?> Generic.List<obj>
             |> Seq.cast<'T>
         else 
             rtnObj :?> 'T |> Seq.singleton 
     
     let checkCollectionOption<'T> (rtnObj : obj) = 
         if isNull rtnObj then None
-        elif rtnObj.GetType() = typeof<Collections.Generic.List<obj>> then
+        elif rtnObj.GetType() = typeof<Generic.List<obj>> then
             rtnObj 
-            :?> Collections.Generic.List<obj>
+            :?> Generic.List<obj>
             |> Seq.cast<'T>
             |> Some
         else 
-            rtnObj :?> 'T |> Seq.singleton |> Some// Fix up case when database isn't a collection
+            rtnObj :?> 'T |> Seq.singleton |> Some
 
     let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj |> box
     let makeSeqOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> box
@@ -49,7 +51,6 @@ module Deserialization =
 
     let makeOption<'T> (obj : obj) = if isNull obj then box None else obj :?> 'T |> Some |> box
 
-    // TODO: this needs to be tidied up
     let fixTypes (name : string) (localType : Type) (dbObj : obj) =
 
         let nullCheck (obj : obj) = 
@@ -60,8 +61,6 @@ module Deserialization =
                 |> raise
             else obj
 
-        // Test of collections
-        // Driver returns a System.Collections.Generic.List`1[System.Object]
         let makeCollections(propTyp : Type) (rtnObj : obj) =
             if propTyp = typeof<string seq> then makeSeq<string> rtnObj
             elif propTyp = typeof<string seq option> then makeSeqOption<string> rtnObj
@@ -150,3 +149,36 @@ module Deserialization =
         if Array.isEmpty obs 
         then Activator.CreateInstance(typ)
         else Activator.CreateInstance(typ, obs)
+
+module Serialization =  
+
+    let fixTypes (o : obj) (pi : PropertyInfo) =
+        let typ = pi.PropertyType
+        if typ = typeof<int> then pi.GetValue o :?> int |> int64 |> box
+        elif typ = typeof<string> then pi.GetValue o
+        else
+            typ
+            |> sprintf "Unsupported property/value: %s. Type: %A" pi.Name
+            |> invalidOp
+        |> fun o -> pi.Name, o
+
+    let serialize (e : #IFSEntity) =
+        let typ = e.GetType()
+        typ.GetProperties()
+        |> Array.map (fixTypes e)
+        |> Map.ofArray
+        |> Generic.Dictionary
+
+    let makeINode (fsNode : #IFSNode) = 
+        { new INode with 
+            member __.Labels = 
+                fsNode.Labels
+                |> Option.defaultValue []
+                |> List.map string
+                :> Generic.IReadOnlyList<string>
+        interface IEntity with
+            member __.Id = invalidOp "Fake Node - no id."
+            member this.get_Item (key : string) : obj = this.Properties.Item key
+            member __.Properties = serialize fsNode :> Generic.IReadOnlyDictionary<string,obj>
+        interface IEquatable<INode> with
+            member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }

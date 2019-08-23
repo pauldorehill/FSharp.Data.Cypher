@@ -2,36 +2,19 @@
 
 open System
 open System.Reflection
-open System.Collections.Generic
+open System.Collections
 open FSharp.Reflection
 open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
 open Neo4j.Driver.V1
+open FSharp.Data.Cypher
 
 type Query<'T> = NA
 
 exception InvalidMatchClause of string
 exception InvalidReturnClause of string
-
-type Label = 
-    | Label of string
-    member this.Value = match this with | Label x -> x
-    override this.ToString() = this.Value
-
-type IFSNode =
-    abstract member Labels : Label list option
-
-type IFSRelationship =
-    abstract member Label : Label option
-
-// This is a hack to enforce correct Types on operators while allowing chaining
-// due to operator precendence can't find a better way
-type AsciiStep = 
-    | AsciiStep
-    interface IFSNode with member __.Labels = None
-    interface IFSRelationship with member __.Label = None
 
 type Clause = 
     | Clause of string
@@ -44,7 +27,7 @@ type QueryStep(clause : Clause, statement : string, ?parameters : Map<string,obj
     member __.Parameters = parameters
     member __.CompleteStep = string clause + " " + statement
 
-type Cypher<'T>(querySteps : QueryStep list, continuation : IReadOnlyDictionary<string, obj> -> 'T) =
+type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     
     let MakeQuery sep =
         querySteps
@@ -58,7 +41,7 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : IReadOnlyDictionary<
         |> List.choose (fun x -> x.Parameters |> Option.map Map.toSeq)
         |> Seq.concat
         |> dict
-        |> Dictionary
+        |> Generic.Dictionary
 
     member __.Continuation = continuation
     member __.Parameters = MakeParameters
@@ -74,12 +57,6 @@ module CypherResult =
 
     let results (cr : CypherResult<'T>) = cr.Results
     let summary (cr : CypherResult<'T>) = cr.Summary
-
-module Label =
-    
-    let forRelationship (value : string) = Some (Label value)
-    
-    let forNode (values : string list) = values |> List.map Label |> Some
 
 module Cypher =
 
@@ -107,24 +84,7 @@ module Cypher =
     let read (driver : IDriver) (cypher : Cypher<'T>) = readMap driver id cypher
     let readAsync (driver : IDriver) (cypher : Cypher<'T>) = async { return read driver cypher }
 
-    let spoof (di : IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
-
-[<AutoOpen>]
-module AsciiStep =
-    
-    let (--) (startNode : IFSNode) (endNode : IFSNode) = AsciiStep
-    
-    let (-->) (startNode : IFSNode) (endNode : IFSNode) = AsciiStep
-    
-    let (<--) (startNode : IFSNode) (endNode : IFSNode) = AsciiStep
-    
-    let (|->) (relationship : IFSRelationship) (node : IFSNode) = AsciiStep
-    
-    let (|-) (relationship : IFSRelationship) (node : IFSNode) = AsciiStep
-    
-    let (-|) (node : IFSNode) (relationship : IFSRelationship) = AsciiStep
-
-    let (<-|) (node : IFSNode) (relationship : IFSRelationship) = AsciiStep
+    let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
 module private Loggers =
 
@@ -243,13 +203,13 @@ module private ReturnClause =
     open ClauseHelpers
     open Exception
 
-    let makeNewType (var : Var) (di : IReadOnlyDictionary<string, obj>) =
+    let makeNewType (var : Var) (di : Generic.IReadOnlyDictionary<string, obj>) =
         let entity = di.[var.Name] :?> IEntity
         if FSharpType.IsRecord var.Type then  Deserialization.toRecord var.Type entity
         elif var.Type.IsClass then Deserialization.toClass var.Type entity
         else invalidOp "RETURN Statement. Type was not a class or a record." 
     
-    let extractValue (di : IReadOnlyDictionary<string, obj>) (exp : Expr) =
+    let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
             let key = fixStringValue typ o
@@ -364,7 +324,7 @@ module CypherBuilder =
     open Loggers
 
     type private ReturnContination<'T> = 
-        | ReturnContination of (IReadOnlyDictionary<string, obj> -> 'T)
+        | ReturnContination of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
         | Empty
         member this.Update v =
             match this with
