@@ -6,20 +6,10 @@ open FSharp.Reflection
 open Neo4j.Driver.V1
 
 module Deserialization =
-    
-    let isOption (pi : PropertyInfo) =
-        pi.PropertyType.IsGenericType && pi.PropertyType.GetGenericTypeDefinition() = typedefof<Option<_>>
 
-    let makeOption (v : obj) =
-        if isNull v then box None 
-        else
-            match v with
-            | :? string as s -> box (Some s)
-            | :? int64 as i -> box (Some i)
-            | :? int as i -> box (Some i)
-            | :? bool as b -> box (Some b)
-            | :? float as f -> box (Some f)
-            | _ -> invalidArg (v.GetType().Name) "An unhandled option type was found: "
+    let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
+
+    let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
 
     let checkCollection<'T> (rtnObj : obj) = 
         if rtnObj.GetType() = typeof<Collections.Generic.List<obj>> then
@@ -27,12 +17,12 @@ module Deserialization =
             :?> Collections.Generic.List<obj>
             |> Seq.cast<'T>
         else 
-            rtnObj :?> 'T |> Seq.singleton
+            rtnObj :?> 'T |> Seq.singleton // Fix up case when database isn't a collection
 
     let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj |> box
     let makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq |> box
     let makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq |> box
-    let makeSet<'T when 'T : comparison > rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq |> box
+    let makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq |> box
 
     // Test of collections
     // Driver returns a System.Collections.Generic.List`1[System.Object]
@@ -62,32 +52,65 @@ module Deserialization =
             |> sprintf "Unsupported collection type: %s"
             |> invalidOp
 
-    // TODO: Fix nulls, perform check on allowed types
-    let fixTypes (propTyp : Type) (rtnObj : obj) =
-        if propTyp = typeof<string> then 
-            let s = rtnObj :?> string
-            if isNull s then box String.Empty else rtnObj
+    let fixInt (obj : obj) =
+        let i = obj :?> int64
+        if i <= int64 Int32.MaxValue then i |> int |> box
+        else InvalidCastException "Can't convert int64 to int32. Value returned is greater than Int32.MaxValue" |> raise
 
-        elif propTyp = typeof<int32> then 
-            let i = rtnObj :?> int64
-            if i <= int64 Int32.MaxValue then i |> int |> box
-            else InvalidCastException "Can't convert int64 to int32. Value returned is greater than Int32.MaxValue" |> raise
 
-        elif not(isNull (propTyp.GetInterface "IEnumerable")) then makeCollections propTyp rtnObj
-        else rtnObj
+    // TODO: this needs to be tidied up
+    let fixTypes (name : string) (localType : Type) (dbObj : obj) =
+
+        let makeOption (obj : obj) =
+            match obj with
+            | :? string as s -> box (Some s)
+            | :? int64 as i -> box (Some i)
+            | :? int32 as i -> box (Some (fixInt i))
+            | :? bool as b -> box (Some b)
+            | :? float as f -> box (Some f)
+            | _ -> 
+                obj.GetType()
+                |> sprintf "An unhandled option type was found: %A"
+                |> invalidOp
+
+        let checkAndFix (typ : Type) =
+            if typ = typeof<string> then dbObj
+            elif typ = typeof<option<string>> then makeOption dbObj
+            elif typ = typeof<int64> then dbObj
+            elif typ = typeof<option<int64>> then makeOption dbObj
+            elif typ = typeof<int32> then fixInt dbObj
+            elif typ = typeof<option<int>> then makeOption dbObj
+            elif typ = typeof<float> then dbObj
+            elif typ = typeof<option<float>> then makeOption dbObj
+            elif typ = typeof<bool> then dbObj
+            elif typ = typeof<option<bool>> then makeOption dbObj
+            elif hasInterface typ "IEnumerable" then makeCollections typ dbObj
+            else 
+                typ
+                |> sprintf "Unsupported property/value: %s. Type: %A" name
+                |> invalidOp
+
+        if isOption localType then
+            if isNull dbObj then box None else checkAndFix localType
+        else 
+            if isNull dbObj then
+                localType.Name
+                |> sprintf "A null object was returned for %s on type %A" name
+                |> invalidOp
+            else
+                checkAndFix localType
     
     let deserialize (typ : Type) (entity : IEntity) = 
         typ.GetProperties()
         |> Array.map (fun pi ->
             match entity.Properties.TryGetValue pi.Name with
-            | true, v -> 
-                let v = fixTypes pi.PropertyType v
-                if isOption pi then makeOption v else v
+            | true, v -> fixTypes pi.Name pi.PropertyType v
             | _ ->
-                // If its an option and not there set to None else its an error
-                if isOption pi 
-                then box None 
-                else invalidArg pi.Name "Could not deserialize node - the required value was not found on the database node: ")
+                if isOption pi.PropertyType then box None 
+                else 
+                    pi.Name
+                    |> sprintf "Could not deserialize node - the required value was not found on the database node: %s"
+                    |> invalidOp)
       
     // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/

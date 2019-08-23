@@ -71,29 +71,40 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : IReadOnlyDictionary<
     member __.Query = MakeQuery " "
     member __.QueryMultiline = MakeQuery Environment.NewLine
     
+type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
+    member __.Results = results
+    member __.Summary = summary
+
+module CypherResult =
+
+    let results (cr : CypherResult<'T>) = cr.Results
+    let summary (cr : CypherResult<'T>) = cr.Summary
+
 module Cypher =
 
     let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (accessMode : AccessMode) (map : 'T -> 'U) =
-        async {
-            use session = driver.Session accessMode
-            try
-                let sr = session.BeginTransaction().Run(cypher.Query, cypher.Parameters)
-                let results = Seq.map (fun (record : IRecord) -> cypher.Continuation record.Values |> map) sr
-                return results, sr.Summary
+        use session = driver.Session accessMode
+        try
+            let sr = session.BeginTransaction().Run(cypher.Query, cypher.Parameters)
+            let results = Seq.map (fun (record : IRecord) -> cypher.Continuation record.Values |> map) sr |> Seq.toArray
+            CypherResult(results, sr.Summary)
 
-            finally
-                session.CloseAsync() |> ignore 
-        }
+        finally
+            session.CloseAsync() |> ignore 
 
     let query (cypher : Cypher<'T>) = cypher.Query
     
-    let writeMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Write map
+    let writeMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Write map 
+    let writeMapAsync (driver : IDriver) map (cypher : Cypher<'T>) = async { return writeMap driver map cypher }
 
     let write (driver : IDriver) (cypher : Cypher<'T>) = writeMap driver id cypher
+    let writeAsync (driver : IDriver) (cypher : Cypher<'T>) = async { return writeMap driver id cypher }
 
     let readMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Read map
+    let readMapAsync (driver : IDriver) map (cypher : Cypher<'T>) = async { return readMap driver map cypher }
 
     let read (driver : IDriver) (cypher : Cypher<'T>) = readMap driver id cypher
+    let readAsync (driver : IDriver) (cypher : Cypher<'T>) = async { return read driver cypher }
 
     let spoof (di : IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
@@ -138,7 +149,7 @@ module private MatchClause =
 
     let makeLabels expr typ name =
         let t = Evaluator.QuotationEvaluator.EvaluateUntyped expr
-        if typ = typeof<IFSNode> || not (isNull (typ.GetInterface IFSNode))
+        if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
         then 
             (t :?> IFSNode).Labels
             |> Option.map (fun xs ->
@@ -148,7 +159,7 @@ module private MatchClause =
             |> Option.defaultValue ""
             |> sprintf "(%s%s)" name
 
-        elif typ = typeof<IFSRelationship> || not (isNull (typ.GetInterface IFSRelationship))
+        elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
             (t :?> IFSRelationship).Label
             |> Option.map (fun l -> sprintf " :%s" l.Value)
@@ -240,7 +251,7 @@ module private ReturnClause =
         match exp with
         | Value (o, typ) ->
             let key = fixStringValue typ o
-            let o = Deserialization.fixTypes typ di.[key]
+            let o = Deserialization.fixTypes key typ di.[key]
             Expr.Value(o, typ)
 
         | Var v -> 
@@ -251,7 +262,7 @@ module private ReturnClause =
 
         | PropertyGet (Some (Var v), pi, _) ->
             let key = makePropertyKey v pi
-            let o = Deserialization.fixTypes pi.PropertyType di.[key]
+            let o = Deserialization.fixTypes pi.Name pi.PropertyType di.[key]
             Expr.Value(o, pi.PropertyType)
 
         | _ ->

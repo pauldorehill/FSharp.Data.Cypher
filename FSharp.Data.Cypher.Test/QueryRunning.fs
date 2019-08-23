@@ -1,12 +1,23 @@
 ﻿namespace FSharp.Data.Cypher.Test.QueryRunning
 
-open FSharp.Data.Cypher.Test
-open FSharp.Data.Cypher
-open Neo4j.Driver.V1
 open System
+open System.Collections.Generic
+open FSharp.Data.Cypher
+open FSharp.Data.Cypher.Test
+open Neo4j.Driver.V1
 open Xunit
 
 module ``Primtive Types`` =
+
+    let spoofDic =  
+        [ "True", box true // dotnet use caps in serialization
+          "False", box false
+          "5", box 5L // DB returns int64
+          "7", box 7L
+          "5.5", box 5.5
+          "\"EMU\"", box "EMU" ]
+        |> Map.ofList
+        |> Dictionary
 
     [<Fact>]
     let ``Bool true`` () =
@@ -14,8 +25,7 @@ module ``Primtive Types`` =
             RETURN true
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(true, r)
     
@@ -25,8 +35,7 @@ module ``Primtive Types`` =
             RETURN false
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(false, r)
         
@@ -36,8 +45,7 @@ module ``Primtive Types`` =
             RETURN 5
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5, r)
 
@@ -47,8 +55,7 @@ module ``Primtive Types`` =
             RETURN 5L
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5L, r)
 
@@ -58,8 +65,7 @@ module ``Primtive Types`` =
             RETURN 5.5
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5.5, r)
 
@@ -69,8 +75,7 @@ module ``Primtive Types`` =
             RETURN "EMU"
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal("EMU", r)
 
@@ -79,8 +84,7 @@ module ``Primtive Types`` =
             RETURN (true, false, 5, 7L, 5.5, "EMU")
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
 
@@ -99,8 +103,7 @@ module ``Complex Queries with Record Types`` =
             RETURN (m.title, m.released)
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun (s, i) -> 
             (Assert.IsType<string> s) |> ignore
@@ -117,8 +120,7 @@ module ``Complex Queries with Record Types`` =
             RETURN (m, p, a, d)
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun (m, p, a, d) -> 
             Assert.IsType<Movie> m |> ignore
@@ -141,8 +143,7 @@ module ``Complex Queries with Classes`` =
             RETURN (m.title, m.released)
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun (s, i) -> 
             (Assert.IsType<string> s) |> ignore
@@ -159,8 +160,7 @@ module ``Complex Queries with Classes`` =
             RETURN (m, p, a, d)
         }
         |> Cypher.read driver
-        |> Async.RunSynchronously
-        |> fst
+        |> CypherResult.results
         |> Seq.head
         |> fun (m, p, a, d) -> 
             Assert.IsType<Movie> m |> ignore
