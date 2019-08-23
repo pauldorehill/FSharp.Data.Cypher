@@ -81,8 +81,6 @@ module Label =
     
     let forNode (values : string list) = values |> List.map Label |> Some
 
-    let forQuery (l : Label) = sprintf " :%s" l.Value
-
 module Cypher =
 
     let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (accessMode : AccessMode) (map : 'T -> 'U) =
@@ -151,13 +149,14 @@ module private MatchClause =
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
     let makeLabels expr typ name =
+        let makeLabel (l : Label) = sprintf " :%s" l.Value
         let t = Evaluator.QuotationEvaluator.EvaluateUntyped expr
         if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
         then 
             (t :?> IFSNode).Labels
             |> Option.map (fun xs ->
                 xs
-                |> List.map Label.forQuery
+                |> List.map makeLabel
                 |> String.concat "")
             |> Option.defaultValue ""
             |> sprintf "(%s%s)" name
@@ -165,7 +164,7 @@ module private MatchClause =
         elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
             (t :?> IFSRelationship).Label
-            |> Option.map Label.forQuery
+            |> Option.map makeLabel
             |> Option.defaultValue ""
             |> sprintf "[%s%s]" name
         else 
