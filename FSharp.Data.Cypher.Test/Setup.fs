@@ -103,36 +103,3 @@ module ``Movie Graph As Records`` =
         static member ActedIn : Query<ActedIn> = NA
         static member Directed : Query<Directed> = NA
         static member Person : Query<Person> = NA
-
-module ``Movie Graph As Classes`` =
-
-    type Movie(title : string, tagline : string option, released : int) =
-        member __.title = title
-        member __.tagline = tagline
-        member __.released = released
-        interface IFSNode with
-            member __.Labels = Some [ Label "Movie" ]
-
-    type Person(born : int, name : string) =
-        member __.born = born 
-        member __.name = name
-        interface IFSNode with
-            member __.Labels =
-                [ "Person" ]
-                |> List.map Label
-                |> Some
-       
-    type ActedIn(roles : string list) =
-        member __.roles = roles
-        interface IFSRelationship with
-            member __.Label = Label "ACTED_IN"
-    
-    type Directed() =
-        interface IFSRelationship with
-            member __.Label = Label "DIRECTED"
-
-    type Graph =
-        static member Movie : Query<Movie> = NA
-        static member ActedIn : Query<ActedIn> = NA
-        static member Directed : Query<Directed> = NA
-        static member Person : Query<Person> = NA

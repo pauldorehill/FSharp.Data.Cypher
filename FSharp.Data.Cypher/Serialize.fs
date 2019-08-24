@@ -11,11 +11,6 @@ module Deserialization =
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
     let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
-
-    let getProperties (typ : Type) =
-        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
-        else typ.GetProperties bindingFlags
     
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let checkCollection<'T> (rtnObj : obj) = 
@@ -38,15 +33,19 @@ module Deserialization =
             rtnObj :?> 'T |> Seq.singleton |> Some
 
     let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj |> box
+
     let makeSeqOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> box
 
     let makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq |> box
+
     let makeArrayOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map Array.ofSeq |> box
 
     let makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq |> box
+
     let makeListOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map List.ofSeq |> box
 
     let makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq |> box
+
     let makeSetOption<'T when 'T : comparison> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map Set.ofSeq |> box
 
     let fixInt (obj : obj) =
@@ -132,6 +131,20 @@ module Deserialization =
             |> sprintf "Unsupported property/value: %s. Type: %A" name
             |> invalidOp
     
+    // TODO: Class serialization is tricky due to the order that the values have to be passed
+    // into the constructure doesn't match the decleration order on the class
+    // also if there is a const member this.V = "Value" that is impossible to filter out with BindingFlags
+    // will need to revisit how handle classes - currently just parameterless for now to allow
+    // for relationships with no properties
+
+    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
+    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
+    
+    let getProperties (typ : Type) =
+        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
+        else typ.GetProperties bindingFlags
+
     let deserialize (typ : Type) (entity : IEntity) =
         typ
         |> getProperties 
@@ -144,28 +157,26 @@ module Deserialization =
                     pi.Name
                     |> sprintf "Could not deserialize IEntity from the graph. The required property was not found: %s"
                     |> invalidOp)
-      
-    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
-    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
+
     let createRecordOrClass (typ : Type) (obs : obj []) =
         if FSharpType.IsRecord typ then FSharpValue.MakeRecord(typ, obs)
         elif typ.IsClass then
-            // Support parameterless constuctors
-            if Array.isEmpty obs 
-            then Activator.CreateInstance typ
-            else Activator.CreateInstance(typ, obs)
+            if Array.isEmpty obs then Activator.CreateInstance typ
+            else invalidOp "Only parameterless classes are supported"
         else invalidOp "Type was not a class or a record."
-    
-    let createFromIEntity (typ : Type) (entity : IEntity) =
-        deserialize typ entity
-        |> createRecordOrClass typ
 
     let createNullRecordOrClass (typ : Type) =
-        if FSharpType.IsRecord typ then FSharpType.GetRecordFields(typ).Length
-        elif typ.IsClass then (getProperties typ).Length
-        else invalidOp "Type was not a class or a record."
-        |> fun fieldCount -> Array.create<obj> fieldCount null
-        |> createRecordOrClass typ
+        if FSharpType.IsRecord typ then 
+            FSharpType.GetRecordFields(typ).Length
+            |> Array.zeroCreate
+            |> fun obs -> FSharpValue.MakeRecord(typ, obs)
+        elif typ.IsClass then 
+            let ctrs = typ.GetConstructors()
+            if ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty) 
+            then Activator.CreateInstance typ
+            else invalidOp "Only parameterless classes are supported"
+            
+        else invalidOp "Type was not a F# record."
 
 module Serialization =  
 

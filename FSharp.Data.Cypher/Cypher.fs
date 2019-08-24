@@ -192,7 +192,8 @@ module private ReturnClause =
     let makeNewType (var : Var) (di : Generic.IReadOnlyDictionary<string, obj>) =
         di.[var.Name] 
         :?> IEntity
-        |> Deserialization.createFromIEntity var.Type
+        |> Deserialization.deserialize var.Type
+        |> Deserialization.createRecordOrClass var.Type
 
     let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
