@@ -12,6 +12,11 @@ module Deserialization =
 
     let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
 
+    let getProperties (typ : Type) =
+        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
+        else typ.GetProperties bindingFlags
+    
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let checkCollection<'T> (rtnObj : obj) = 
         if isNull rtnObj then Seq.empty
@@ -127,8 +132,9 @@ module Deserialization =
             |> sprintf "Unsupported property/value: %s. Type: %A" name
             |> invalidOp
     
-    let deserialize (typ : Type) (entity : IEntity) = 
-        typ.GetProperties()
+    let deserialize (typ : Type) (entity : IEntity) =
+        typ
+        |> getProperties 
         |> Array.map (fun pi ->
             match entity.Properties.TryGetValue pi.Name with
             | true, v -> fixTypes pi.Name pi.PropertyType v
@@ -141,14 +147,25 @@ module Deserialization =
       
     // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
-    let toRecord (typ : Type) (entity : IEntity) = FSharpValue.MakeRecord(typ, deserialize typ entity)
+    let createRecordOrClass (typ : Type) (obs : obj []) =
+        if FSharpType.IsRecord typ then FSharpValue.MakeRecord(typ, obs)
+        elif typ.IsClass then
+            // Support parameterless constuctors
+            if Array.isEmpty obs 
+            then Activator.CreateInstance typ
+            else Activator.CreateInstance(typ, obs)
+        else invalidOp "Type was not a class or a record."
     
-    // Support parameterless constuctors
-    let toClass (typ : Type) (entity : IEntity) = 
-        let obs = deserialize typ entity
-        if Array.isEmpty obs 
-        then Activator.CreateInstance(typ)
-        else Activator.CreateInstance(typ, obs)
+    let createFromIEntity (typ : Type) (entity : IEntity) =
+        deserialize typ entity
+        |> createRecordOrClass typ
+
+    let createNullRecordOrClass (typ : Type) =
+        if FSharpType.IsRecord typ then FSharpType.GetRecordFields(typ).Length
+        elif typ.IsClass then (getProperties typ).Length
+        else invalidOp "Type was not a class or a record."
+        |> fun fieldCount -> Array.create<obj> fieldCount null
+        |> createRecordOrClass typ
 
 module Serialization =  
 
@@ -164,11 +181,18 @@ module Serialization =
 
     let serialize (e : #IFSEntity) =
         let typ = e.GetType()
-        typ.GetProperties()
+        typ
+        |> Deserialization.getProperties
         |> Array.map (fixTypes e)
         |> Map.ofArray
         |> Generic.Dictionary
 
+    let makeIEntity (fsNode : #IFSEntity) = 
+        { new IEntity with 
+            member __.Id = invalidOp "Fake Entity."
+            member this.get_Item (key : string) : obj = this.Properties.Item key
+            member __.Properties = serialize fsNode :> Generic.IReadOnlyDictionary<string,obj> }
+    
     let makeINode (fsNode : #IFSNode) = 
         { new INode with 
             member __.Labels = 
@@ -182,3 +206,15 @@ module Serialization =
             member __.Properties = serialize fsNode :> Generic.IReadOnlyDictionary<string,obj>
         interface IEquatable<INode> with
             member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
+            
+    let makeIRelationship (fsRel : #IFSRelationship) = 
+        { new IRelationship with 
+            member __.StartNodeId = invalidOp "Fake relationsip - no start node"
+            member __.EndNodeId = invalidOp "Fake relationsip - no end node"
+            member __.Type = fsRel.Label |> string
+        interface IEntity with
+            member __.Id = invalidOp "Fake Node - no id."
+            member this.get_Item (key : string) : obj = this.Properties.Item key
+            member __.Properties = serialize fsRel :> Generic.IReadOnlyDictionary<string,obj>
+        interface IEquatable<IRelationship> with
+            member this.Equals(other : IRelationship) = this = (other :> IEquatable<IRelationship>) }

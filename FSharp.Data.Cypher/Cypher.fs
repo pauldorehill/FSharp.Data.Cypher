@@ -124,28 +124,12 @@ module private MatchClause =
         elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
             (t :?> IFSRelationship).Label
-            |> Option.map makeLabel
-            |> Option.defaultValue ""
+            |> makeLabel
             |> sprintf "[%s%s]" name
         else 
             typ
             |> sprintf "Tried to make labels, but not a %s or %s: %A" IFSNode IFSRelationship
             |> invalidOp 
-
-    // TODO  : this was quick to get working!
-    let makeVar (v : Var) =
-        if FSharpType.IsRecord v.Type then
-            let fieldCount = FSharpType.GetRecordFields(v.Type).Length
-            FSharpValue.MakeRecord(v.Type, Array.create<obj> fieldCount null)
-
-        elif v.Type.IsClass then
-            let fieldCount = v.Type.GetProperties()
-            if Array.isEmpty fieldCount
-            then Activator.CreateInstance(v.Type)
-            else Activator.CreateInstance(v.Type, Array.create<obj> fieldCount.Length null)
-
-        else invalidOp "Not a Record Type"
-        |> fun o -> makeLabels <@ o @> v.Type v.Name
 
     let buildAscii expr =
         let rec inner expr =
@@ -164,7 +148,9 @@ module private MatchClause =
             | Coerce (ex, _) -> inner ex
             | Let (_, _, e2) -> inner e2
             | TupleGet (exp, _) -> inner exp
-            | Var v -> makeVar v
+            | Var v -> 
+                Deserialization.createNullRecordOrClass v.Type
+                |> fun o -> makeLabels <@ o @> v.Type v.Name
             | _ -> 
                 expr
                 |> sprintf "Unable to build ascii statement: %A"
@@ -204,11 +190,10 @@ module private ReturnClause =
     open Exception
 
     let makeNewType (var : Var) (di : Generic.IReadOnlyDictionary<string, obj>) =
-        let entity = di.[var.Name] :?> IEntity
-        if FSharpType.IsRecord var.Type then  Deserialization.toRecord var.Type entity
-        elif var.Type.IsClass then Deserialization.toClass var.Type entity
-        else invalidOp "RETURN Statement. Type was not a class or a record." 
-    
+        di.[var.Name] 
+        :?> IEntity
+        |> Deserialization.createFromIEntity var.Type
+
     let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
@@ -217,10 +202,9 @@ module private ReturnClause =
             Expr.Value(o, typ)
 
         | Var v -> 
-            let typeInstance = makeNewType v di
             // Need to give the compiler some type info for final cast - so return as a value
             // This may be a bit of a hack, but it works!
-            Expr.Value(typeInstance, v.Type)
+            Expr.Value(makeNewType v di, v.Type)
 
         | PropertyGet (Some (Var v), pi, _) ->
             let key = makePropertyKey v pi

@@ -13,18 +13,18 @@ type IFSNode =
 
 type IFSRelationship =
     inherit IFSEntity
-    abstract member Label : Label option
+    abstract member Label : Label
 
 // This is a hack to enforce correct Types on operators while allowing chaining
 // due to operator precendence can't find a better way
 type Ascii = 
     | Ascii
-    interface IFSNode with member __.Labels = None
-    interface IFSRelationship with member __.Label = None
+    interface IFSNode with 
+        member __.Labels = None
+    interface IFSRelationship with 
+        member __.Label = Label ""
 
 module Label =
-    
-    let forRelationship (value : string) = Some (Label value)
     
     let forNode (values : string list) = values |> List.map Label |> Some
 
