@@ -18,57 +18,37 @@ module ``Super Type`` =
         { string : string
           stringOption : string option 
           stringSeq : string seq 
-          stringSeqOption : string seq option
           stringList : string List 
-          stringListOption : string List option
           stringArray : string array 
-          stringArrayOption : string array option
           stringSet : string Set 
-          stringSetOption : string Set option
 
           int64 : int64
           int64Option : int64 option 
           int64Seq : int64 seq 
-          int64SeqOption : int64 seq option
           int64List : int64 List 
-          int64ListOption : int64 List option
           int64Array : int64 array 
-          int64ArrayOption : int64 array option
           int64Set : int64 Set 
-          int64SetOption : int64 Set option 
 
           int32 : int32
           int32Option : int32 option 
           int32Seq : int32 seq 
-          int32SeqOption : int32 seq option
           int32List : int32 List 
-          int32ListOption : int32 List option
           int32Array : int32 array 
-          int32ArrayOption : int32 array option
           int32Set : int32 Set 
-          int32SetOption : int32 Set option 
 
           float : float
           floatOption : float option 
           floatSeq : float seq 
-          floatSeqOption : float seq option
           floatList : float List 
-          floatListOption : float List option
           floatArray : float array 
-          floatArrayOption : float array option
           floatSet : float Set 
-          floatSetOption : float Set option 
 
           bool : bool
           boolOption : bool option 
           boolSeq : bool seq 
-          boolSeqOption : bool seq option
           boolList : bool List 
-          boolListOption : bool List option
           boolArray : bool array 
-          boolArrayOption : bool array option
-          boolSet : bool Set 
-          boolSetOption : bool Set option }
+          boolSet : bool Set }
 
 module ``Movie Graph As Records`` =
     
