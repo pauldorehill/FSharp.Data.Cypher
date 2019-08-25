@@ -137,6 +137,14 @@ module ``All Allowed`` =
 
 module ``Movie Graph As Records`` =
     
+    type LotsOfLabels() =
+        interface IFSNode with
+            member __.Labels = Label.forNode [ "Label1"; "Label2"; "Label3"; "Label4"]    
+    
+    type LabelWithSpace() =
+        interface IFSNode with
+            member __.Labels = Label.forNode [ "Label with spaces"]
+
     type Movie =
         { title : string
           tagline : string option
@@ -167,3 +175,5 @@ module ``Movie Graph As Records`` =
         static member ActedIn : Query<ActedIn> = NA
         static member Directed : Query<Directed> = NA
         static member Person : Query<Person> = NA
+        static member LotsOfLabels : Query<LotsOfLabels> = NA
+        static member LabelWithSpace : Query<LabelWithSpace> = NA

@@ -1,10 +1,8 @@
 ﻿namespace FSharp.Data.Cypher.Test.QueryRunning
 
-open System
 open System.Collections
 open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
-open Neo4j.Driver.V1
 open Xunit
 
 module ``Primtive Types`` =

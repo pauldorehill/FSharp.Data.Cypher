@@ -109,7 +109,10 @@ module private MatchClause =
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
     let makeLabels expr typ name =
-        let makeLabel (l : Label) = sprintf " :%s" l.Value
+        let makeLabel (l : Label) = 
+            if l.Value.Contains(" ") then sprintf "`%s`" l.Value else l.Value
+            |> sprintf " :%s"
+
         let t = Evaluator.QuotationEvaluator.EvaluateUntyped expr
         if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
         then 

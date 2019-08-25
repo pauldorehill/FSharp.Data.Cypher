@@ -59,6 +59,26 @@ module ``MATCH Statement`` =
     open ``Movie Graph As Records``
 
     [<Fact>]
+    let ``Lots of Labels`` () =
+        cypher {
+            for ll in Graph.LotsOfLabels do
+            MATCH ll
+            RETURN ll
+        }
+        |> Cypher.query
+        |> fun r -> Assert.Equal("MATCH (ll :Label1 :Label2 :Label3 :Label4) RETURN ll", r)
+    
+    [<Fact>]
+    let ``Label with space`` () =
+        cypher {
+            for ls in Graph.LabelWithSpace do
+            MATCH ls
+            RETURN ls
+        }
+        |> Cypher.query
+        |> fun r -> Assert.Equal("MATCH (ls :`Label with spaces`) RETURN ls", r)
+
+    [<Fact>]
     let ``Basic MATCH`` () =
         cypher {
             for m in Graph.Movie do
@@ -137,3 +157,17 @@ module ``MATCH Statement`` =
         }
         |> Cypher.query
         |> fun r -> Assert.Equal("MATCH (p :Person)-[a :ACTED_IN]->(m :Movie)<-[d :DIRECTED]-(p :Person) RETURN m", r)
+    
+    [<Fact>]
+    let ``All Ascii`` () =
+        cypher {
+            for m in Graph.Movie do
+            for a in Graph.ActedIn do
+            for d in Graph.Directed do
+            for p in Graph.Person do
+            MATCH (p <-| a |-> m -- p --> p <-- p -| a |- m)
+            RETURN m
+        }
+        |> Cypher.query
+        |> fun r -> 
+            Assert.Equal("MATCH (p :Person)<-[a :ACTED_IN]->(m :Movie)--(p :Person)-->(p :Person)<--(p :Person)-[a :ACTED_IN]-(m :Movie) RETURN m", r)
