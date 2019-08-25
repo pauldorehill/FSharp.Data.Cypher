@@ -1,7 +1,7 @@
 ﻿namespace FSharp.Data.Cypher.Test.QueryRunning
 
 open System
-open System.Collections.Generic
+open System.Collections
 open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
 open Neo4j.Driver.V1
@@ -17,7 +17,7 @@ module ``Primtive Types`` =
           "5.5", box 5.5
           "\"EMU\"", box "EMU" ]
         |> Map.ofList
-        |> Dictionary
+        |> Generic.Dictionary
 
     [<Fact>]
     let ``Bool true`` () =
@@ -87,6 +87,51 @@ module ``Primtive Types`` =
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
+
+module ``All Types Allowed on Record`` =
+    
+    let spoofDic =  
+        [ "allAllowedSome", box ``All Allowed``.allAllowedSome
+          "allAllowedNone", box ``All Allowed``.allAllowedNone 
+          "nonCollections", box ``All Allowed``.nonCollections ]
+        |> Map.ofList
+        |> Generic.Dictionary
+    
+    type Graph =
+        static member AllAllowed : Query<AllAllowed> = NA
+
+    [<Fact>]
+    let ``Can do all when return Some`` ()=
+        cypher {
+            for allAllowedSome in Graph.AllAllowed do
+
+            MATCH (allAllowedSome)
+            RETURN (allAllowedSome)
+        }
+        |> Cypher.spoof spoofDic
+        |> Assert.IsType<AllAllowed>
+
+    [<Fact>]
+    let ``Can do all when return None`` ()=
+        cypher {
+            for allAllowedNone in Graph.AllAllowed do
+
+            MATCH (allAllowedNone)
+            RETURN (allAllowedNone)
+        }
+        |> Cypher.spoof spoofDic
+        |> Assert.IsType<AllAllowed>
+
+    [<Fact>]
+    let ``Can do all when collections are single items`` ()=
+        cypher {
+            for nonCollections in Graph.AllAllowed do
+
+            MATCH (nonCollections)
+            RETURN (nonCollections)
+        }
+        |> Cypher.spoof spoofDic
+        |> Assert.IsType<AllAllowed>
 
 module ``Complex Queries with Record Types`` = 
     

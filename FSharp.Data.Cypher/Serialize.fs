@@ -144,11 +144,22 @@ module Deserialization =
             |> fun obs -> FSharpValue.MakeRecord(typ, obs)
         elif typ.IsClass then 
             let ctrs = typ.GetConstructors()
-            if ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty) 
+            if ctrs.Length = 0 then 
+                (typ.Name, typ.Name)
+                ||> sprintf "Class of Type: %s needs a parameterless constructor. eg. type %s () ="
+                |> invalidOp 
+
+            elif ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty) 
             then Activator.CreateInstance typ
-            else invalidOp "Only parameterless classes are supported"
+            else
+                typ.Name
+                |> sprintf "Only parameterless classes are supported. Type: %s"
+                |> invalidOp 
             
-        else invalidOp "Type was not a F# record."
+        else 
+            typ.Name
+            |> sprintf "Type %s was not a F# record or class"
+            |> invalidOp 
 
 module Serialization =  
 
