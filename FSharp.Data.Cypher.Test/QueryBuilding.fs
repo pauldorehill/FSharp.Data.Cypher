@@ -66,7 +66,7 @@ module ``MATCH Statement`` =
             RETURN ll
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (ll :Label1 :Label2 :Label3 :Label4) RETURN ll", r)
+        |> fun r -> Assert.Equal("MATCH (ll:Label1:Label2:Label3:Label4) RETURN ll", r)
     
     [<Fact>]
     let ``Label with space`` () =
@@ -76,7 +76,7 @@ module ``MATCH Statement`` =
             RETURN ls
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (ls :`Label with spaces`) RETURN ls", r)
+        |> fun r -> Assert.Equal("MATCH (ls:`Label with spaces`) RETURN ls", r)
 
     [<Fact>]
     let ``Basic MATCH`` () =
@@ -86,7 +86,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (m :Movie) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (m:Movie) RETURN m", r)
 
     [<Fact>]
     let ``Basic Ascii -- `` () =
@@ -97,7 +97,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)--(m :Movie) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (p:Person)--(m:Movie) RETURN m", r)
 
     [<Fact>]
     let ``Basic Ascii <-- `` () =
@@ -108,7 +108,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)<--(m :Movie) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (p:Person)<--(m:Movie) RETURN m", r)
 
     [<Fact>]
     let ``Basic Ascii --> `` () =
@@ -119,7 +119,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)-->(m :Movie) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (p:Person)-->(m:Movie) RETURN m", r)
 
     [<Fact>]
     let ``Basic Ascii -| & |- `` () =
@@ -131,7 +131,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)-[a :ACTED_IN]-(m :Movie) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (p:Person)-[a:ACTED_IN]-(m:Movie) RETURN m", r)
     
     [<Fact>]
     let ``Basic Ascii <-| & |-> `` () =
@@ -143,7 +143,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)<-[a :ACTED_IN]->(m :Movie) RETURN m", r)    
+        |> fun r -> Assert.Equal("MATCH (p:Person)<-[a:ACTED_IN]->(m:Movie) RETURN m", r)    
 
     [<Fact>]
     let ``Complex Ascii`` () =
@@ -156,7 +156,7 @@ module ``MATCH Statement`` =
             RETURN m
         }
         |> Cypher.query
-        |> fun r -> Assert.Equal("MATCH (p :Person)-[a :ACTED_IN]->(m :Movie)<-[d :DIRECTED]-(p :Person) RETURN m", r)
+        |> fun r -> Assert.Equal("MATCH (p:Person)-[a:ACTED_IN]->(m:Movie)<-[d:DIRECTED]-(p:Person) RETURN m", r)
     
     [<Fact>]
     let ``All Ascii`` () =
@@ -170,4 +170,4 @@ module ``MATCH Statement`` =
         }
         |> Cypher.query
         |> fun r -> 
-            Assert.Equal("MATCH (p :Person)<-[a :ACTED_IN]->(m :Movie)--(p :Person)-->(p :Person)<--(p :Person)-[a :ACTED_IN]-(m :Movie) RETURN m", r)
+            Assert.Equal("MATCH (p:Person)<-[a:ACTED_IN]->(m:Movie)--(p:Person)-->(p:Person)<--(p:Person)-[a:ACTED_IN]-(m:Movie) RETURN m", r)

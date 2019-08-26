@@ -109,17 +109,13 @@ module private MatchClause =
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
     let makeLabels expr typ name =
-        let makeLabel (l : Label) = 
-            if l.Value.Contains(" ") then sprintf "`%s`" l.Value else l.Value
-            |> sprintf " :%s"
-
         let t = Evaluator.QuotationEvaluator.EvaluateUntyped expr
         if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
         then 
             (t :?> IFSNode).Labels
             |> Option.map (fun xs ->
                 xs
-                |> List.map makeLabel
+                |> List.map Label.make
                 |> String.concat "")
             |> Option.defaultValue ""
             |> sprintf "(%s%s)" name
@@ -127,11 +123,11 @@ module private MatchClause =
         elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
             (t :?> IFSRelationship).Label
-            |> makeLabel
+            |> Label.make
             |> sprintf "[%s%s]" name
         else 
-            typ
-            |> sprintf "Tried to make labels, but not a %s or %s: %A" IFSNode IFSRelationship
+            typ.Name
+            |> sprintf "Tried to make labels, but not a %s or %s: %s" IFSNode IFSRelationship
             |> invalidOp 
 
     let buildAscii expr =

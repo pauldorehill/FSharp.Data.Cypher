@@ -3,6 +3,7 @@
 type Label = 
     | Label of string
     member this.Value = match this with | Label x -> x
+
     override this.ToString() = this.Value
 
 type IFSEntity = interface end
@@ -27,6 +28,10 @@ type Ascii =
 module Label =
     
     let forNode (values : string list) = values |> List.map Label |> Some
+
+    let make (l : Label) =
+        if l.Value.Contains(" ") then sprintf "`%s`" l.Value else l.Value
+        |> sprintf ":%s"
 
 [<AutoOpen>]
 module Ascii =

@@ -126,12 +126,12 @@ module ``All Allowed`` =
           "floatList", box 5.5
           "floatArray", box 5.5
           "floatSet", box 5.5
-          "bool", box true
-          "boolOption", box true
-          "boolSeq", box true
-          "boolList", box true
-          "boolArray", box true
-          "boolSet", box true ]
+          "bool", box false
+          "boolOption", box false
+          "boolSeq", box false
+          "boolList", box false
+          "boolArray", box false
+          "boolSet", box false ]
         |> makeToReturnType
 
 

@@ -22,31 +22,13 @@ module Deserialization =
         else 
             rtnObj :?> 'T |> Seq.singleton 
 
-    //let checkCollectionOption<'T> (rtnObj : obj) = 
-    //    if isNull rtnObj then None
-    //    elif rtnObj.GetType() = typeof<Generic.List<obj>> then
-    //        rtnObj 
-    //        :?> Generic.List<obj>
-    //        |> Seq.cast<'T>
-    //        |> Some
-    //    else 
-    //        rtnObj :?> 'T |> Seq.singleton |> Some
-
     let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj
-
-    //let makeSeqOption<'T> rtnObj = checkCollectionOption<'T> rtnObj
 
     let makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq
 
-    //let makeArrayOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map Array.ofSeq
-
     let makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq
 
-    //let makeListOption<'T> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map List.ofSeq
-
     let makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq
-
-    //let makeSetOption<'T when 'T : comparison> rtnObj = checkCollectionOption<'T> rtnObj |> Option.map Set.ofSeq
 
     let makeOption<'T> (obj : obj) = 
         if isNull obj then box None 
