@@ -21,34 +21,44 @@ type Clause =
     member this.Value = match this with | Clause x -> x
     override this.ToString() = this.Value.Replace("_", " ")
 
-type QueryStep(clause : Clause, statement : string, ?parameters : Map<string,obj>) =
+type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj) list ) =
     member __.Clause = clause
     member __.Statement = statement
     member __.Parameters = parameters
     member __.CompleteStep = string clause + " " + statement
 
 type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
+    let ChooseParams =
+        querySteps
+        |> List.choose (fun x -> x.Parameters)
+        |> List.concat
     
     let MakeQuery sep =
         querySteps
         |> List.map (fun x -> x.CompleteStep)
         |> String.concat sep
 
+    member __.QuerySteps = querySteps
+
+    member __.Continuation = continuation
+
     // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
     // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
-    let MakeParameters =
-        querySteps
-        |> List.choose (fun x -> x.Parameters |> Option.map Map.toSeq)
-        |> Seq.concat
+    member __.Parameters =
+        ChooseParams
         |> dict
         |> Generic.Dictionary
 
-    member __.Continuation = continuation
-    member __.Parameters = MakeParameters
-    member __.QuerySteps = querySteps
     member __.Query = MakeQuery " "
+
     member __.QueryMultiline = MakeQuery Environment.NewLine
-    
+
+    member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this
+        (this.Query, ChooseParams)
+        ||> List.fold (fun state (k, v) -> 
+            let v = if v.GetType()= typeof<string> then string v |> sprintf "\"%s\"" else string v
+            state.Replace("$" + k, v)) 
+        
 type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
     member __.Results = results
     member __.Summary = summary
@@ -70,7 +80,7 @@ module Cypher =
         finally
             session.CloseAsync() |> ignore 
 
-    let query (cypher : Cypher<'T>) = cypher.Query
+    let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
     
     let writeMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Write map 
     let writeMapAsync (driver : IDriver) map (cypher : Cypher<'T>) = async { return writeMap driver map cypher }
@@ -183,24 +193,28 @@ module private ClauseHelpers =
             |> sprintf "Trying to extract statement but couldn't match expression: %A"
             |> invalidOp
 
-module WhereStatement =
+module WhereAndSetStatement =
+
+    let private rnd = Random()
+    let private chars = "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz".ToCharArray()
+
+    let makeKey len = String(Array.init len (fun _ -> chars.[rnd.Next(chars.Length - 1)]))
 
     let make (e : Expr) =
         let mutable parameters = List.Empty
     
-        let addParam o = 
-            //let key = Guid.NewGuid().ToString()
-            //parameters <- (key, o) :: parameters
-            //"$" + key
-            if o.GetType() = typeof<string> then string o |> sprintf "'%s'"  else string o
-    
+        let addParam o =
+            let key = makeKey 15
+            parameters <- (key, o) :: parameters
+            "$" + key
+                
         let rec builder (e : Expr) =
             //printfn "%A" e
             match e with
             | SpecificCall <@@ (=) @@> (_, _, [ left; right ]) -> 
                 match left, right with
                 | PropertyGet (None, piL, _), PropertyGet (None, piR, _) -> // Case when its a type on both sides, need to serialize the type
-                    let o = box "Type found"//invalidOp "Need to write type serializer"
+                    let o = invalidOp "Need to write type serializer" // TODO
                     piL.Name + " = " + addParam o
                 | _ -> builder left + " = " + builder right
             | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left + " < " + builder right
@@ -211,32 +225,23 @@ module WhereStatement =
             | IfThenElse (left, right, Value (o, t)) -> builder left + " AND " + builder right // Value(false) for AND
             | IfThenElse (left, Value (o, t), right) -> builder left + " OR " + builder right // Value(true) for OR
 
-            | NewTuple exprs -> // Should maybe throw as not allowed?
+            | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
                 List.map builder exprs
                 |> String.concat ", "
 
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
-
-            | Value (o, t) -> 
-                //let value =
-                //    if t = typeof<string> then string o //|> sprintf "'%s'"
-                //    else string o
-                addParam o
-            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." . Used for options .Value
+            | Value (o, t) -> addParam o
+            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> builder e + "." + pi.Name
             | PropertyGet (None, pi, _) -> pi.Name
             | Var v -> v.Name
-            //| Call (e, mi, [left; right]) ->
-            //    printfn "Matched call"
-            //    builder right
             | Let (_, _, e2) -> builder e2
             | Lambda (_, e) -> builder e
             | _ -> 
-                sprintf "un matched: %A" e
+                sprintf "Un matched in WHERE/SET statement: %A" e
                 |> invalidOp
     
-        builder e, List.distinctBy fst parameters
-
+        builder e, parameters
 
 module private ReturnClause =
 
@@ -460,14 +465,14 @@ module CypherBuilder =
                     
                     | SpecificCall <@ cypher.WHERE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.WHERE stepAbove thisStep  
-                        let statement = WhereStatement.make thisStep |> fst
-                        let newState = QueryStep(Clause WHERE, statement) :: state
+                        let (statement, prms) = WhereAndSetStatement.make thisStep
+                        let newState = QueryStep(Clause WHERE, statement, prms) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.SET @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.SET stepAbove thisStep  
-                        let statement = WhereStatement.make thisStep |> fst
-                        let newState = QueryStep(Clause SET, statement) :: state
+                        let (statement, prms) = WhereAndSetStatement.make thisStep
+                        let newState = QueryStep(Clause SET, statement, prms) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN @> (exp, types, [ stepAbove; thisStep ]) ->

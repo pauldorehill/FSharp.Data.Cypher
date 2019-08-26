@@ -11,7 +11,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN true
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN True", r) //.net bool is caps
     
     [<Fact>]
@@ -19,7 +19,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN false
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN False", r) //.net bool is caps
         
     [<Fact>]
@@ -27,7 +27,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN 5", r)
     
     [<Fact>]
@@ -35,7 +35,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5L
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN 5", r)
         
     [<Fact>]
@@ -43,7 +43,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5.5
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN 5.5", r)
     
     [<Fact>]
@@ -51,7 +51,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN "EMU"
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("RETURN \"EMU\"", r)
 
 module ``MATCH Statement`` =
@@ -65,7 +65,7 @@ module ``MATCH Statement`` =
             MATCH ll
             RETURN ll
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (ll:Label1:Label2:Label3:Label4) RETURN ll", r)
     
     [<Fact>]
@@ -75,7 +75,7 @@ module ``MATCH Statement`` =
             MATCH ls
             RETURN ls
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (ls:`Label with spaces`) RETURN ls", r)
 
     [<Fact>]
@@ -85,7 +85,7 @@ module ``MATCH Statement`` =
             MATCH m
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (m:Movie) RETURN m", r)
 
     [<Fact>]
@@ -96,7 +96,7 @@ module ``MATCH Statement`` =
             MATCH (p -- m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)--(m:Movie) RETURN m", r)
 
     [<Fact>]
@@ -107,7 +107,7 @@ module ``MATCH Statement`` =
             MATCH (p <-- m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)<--(m:Movie) RETURN m", r)
 
     [<Fact>]
@@ -118,7 +118,7 @@ module ``MATCH Statement`` =
             MATCH (p --> m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)-->(m:Movie) RETURN m", r)
 
     [<Fact>]
@@ -130,7 +130,7 @@ module ``MATCH Statement`` =
             MATCH (p -| a |- m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)-[a:ACTED_IN]-(m:Movie) RETURN m", r)
     
     [<Fact>]
@@ -142,7 +142,7 @@ module ``MATCH Statement`` =
             MATCH (p <-| a |-> m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)<-[a:ACTED_IN]->(m:Movie) RETURN m", r)    
 
     [<Fact>]
@@ -155,7 +155,7 @@ module ``MATCH Statement`` =
             MATCH (p -| a |-> m <-| d |- p)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> Assert.Equal("MATCH (p:Person)-[a:ACTED_IN]->(m:Movie)<-[d:DIRECTED]-(p:Person) RETURN m", r)
     
     [<Fact>]
@@ -168,6 +168,6 @@ module ``MATCH Statement`` =
             MATCH (p <-| a |-> m -- p --> p <-- p -| a |- m)
             RETURN m
         }
-        |> Cypher.query
+        |> Cypher.queryNonParameterized
         |> fun r -> 
             Assert.Equal("MATCH (p:Person)<-[a:ACTED_IN]->(m:Movie)--(p:Person)-->(p:Person)<--(p:Person)-[a:ACTED_IN]-(m:Movie) RETURN m", r)
