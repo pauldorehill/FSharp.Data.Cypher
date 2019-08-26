@@ -177,3 +177,4 @@ module ``MATCH Statement`` =
 // let binding out of comp exp -> should be serialized
 // let binding in comp exp -> becomes var so nothing
 // let binding as passed in parameter -> should be serialized
+// Testing query with & without params

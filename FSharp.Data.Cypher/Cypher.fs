@@ -215,6 +215,7 @@ module WhereAndSetStatement =
     let private rnd = Random()
     let private chars = "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz".ToCharArray()
 
+    // TODO : Make this a bit smarter. Should generate a key based of the inputs, so its testable // repeatable?
     let makeKey len = String(Array.init len (fun _ -> chars.[rnd.Next(chars.Length - 1)]))
 
     let make (e : Expr) =
