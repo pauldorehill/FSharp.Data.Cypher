@@ -8,13 +8,13 @@ open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
+open FSharp.Quotations.Evaluator
 open Neo4j.Driver.V1
 open FSharp.Data.Cypher
 
 type Query<'T> = NA
 
 exception InvalidMatchClause of string
-exception InvalidReturnClause of string
 
 type Clause = 
     | Clause of string
@@ -26,6 +26,11 @@ type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj)
     member __.Statement = statement
     member __.Parameters = parameters
     member __.CompleteStep = string clause + " " + statement
+    static member FixStringParameter (s : string) = sprintf "\"%s\"" s
+    static member FixStringParameter (typ : Type, o : obj) = 
+        if typ = typeof<string> then 
+            o :?> string |> QueryStep.FixStringParameter 
+        else string o
 
 type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let ChooseParams =
@@ -55,8 +60,17 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
 
     member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this
         (this.Query, ChooseParams)
-        ||> List.fold (fun state (k, v) -> 
-            let v = if v.GetType()= typeof<string> then string v |> sprintf "\"%s\"" else string v
+        ||> List.fold (fun state (k, o) -> 
+            let v = 
+                match o with
+                | :? string as s -> QueryStep.FixStringParameter s
+                | :? Generic.Dictionary<string, obj> as d ->  
+                    d 
+                    |> Seq.map (fun kv -> kv.Key + " : " + QueryStep.FixStringParameter(kv.Value.GetType(), kv.Value))
+                    |> String.concat ", "
+                    |> sprintf "{ %s }"
+                | _ -> string o
+
             state.Replace("$" + k, v)) 
         
 type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
@@ -109,7 +123,7 @@ module Exception =
     
     let invalidMatchClause e = InvalidMatchClause e |> raise
 
-    let invalidReturnClause e = InvalidReturnClause e |> raise
+    //let invalidReturnClause e = InvalidReturnClause e |> raise
 
 module private MatchClause =
     
@@ -118,11 +132,11 @@ module private MatchClause =
     let [<Literal>] private IFSNode = "IFSNode"
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
-    let makeLabels expr typ name =
-        let t = Evaluator.QuotationEvaluator.EvaluateUntyped expr
+    let makeLabels name (o : obj)  =
+        let typ = o.GetType()
         if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
         then 
-            (t :?> IFSNode).Labels
+            (o :?> IFSNode).Labels
             |> Option.map (fun xs ->
                 xs
                 |> List.map Label.make
@@ -132,7 +146,7 @@ module private MatchClause =
 
         elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
         then
-            (t :?> IFSRelationship).Label
+            (o :?> IFSRelationship).Label
             |> Label.make
             |> sprintf "[%s%s]" name
         else 
@@ -153,13 +167,18 @@ module private MatchClause =
             | SpecificCall <@ (<-|) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "<-" + inner rightSide
             // Coarce can let you get the instance of the type
             // Wrapped like this to prevent case when its AsciiStep triggering makeLabels
-            | Coerce (PropertyGet (_, pi, _), typ) -> makeLabels expr typ pi.Name
+            | Coerce (PropertyGet (_, pi, _), typ) -> 
+                QuotationEvaluator.EvaluateUntyped expr
+                |> makeLabels pi.Name
             | Coerce (ex, _) -> inner ex
             | Let (_, _, e2) -> inner e2
             | TupleGet (exp, _) -> inner exp
             | Var v -> 
                 Deserialization.createNullRecordOrClass v.Type
-                |> fun o -> makeLabels <@ o @> v.Type v.Name
+                |> makeLabels v.Name //<@ o @> v.Type 
+            | PropertyGet (_, pi, _) -> 
+                QuotationEvaluator.EvaluateUntyped expr
+                |> makeLabels pi.Name
             | _ -> 
                 expr
                 |> sprintf "Unable to build ascii statement: %A"
@@ -179,11 +198,9 @@ module private ClauseHelpers =
     
     let makePropertyKey (v : Var) (pi : PropertyInfo) = v.Name + "." + pi.Name
 
-    let fixStringValue typ o = if typ = typeof<string> then string o |> sprintf "\"%s\"" else string o
-
     let extractStatement (exp : Expr) =
         match exp with
-        | Value (o, typ) -> fixStringValue typ o
+        | Value (o, typ) -> QueryStep.FixStringParameter(typ, o)
         | Var v -> v.Name // string needs to be escaped
         | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
         // When variable is outside the builder
@@ -204,18 +221,33 @@ module WhereAndSetStatement =
         let mutable parameters = List.Empty
     
         let addParam o =
-            let key = makeKey 15
+            let key = makeKey 20
             parameters <- (key, o) :: parameters
             "$" + key
                 
         let rec builder (e : Expr) =
             //printfn "%A" e
             match e with
-            | SpecificCall <@@ (=) @@> (_, _, [ left; right ]) -> 
+            | SpecificCall <@@ (=) @@> (_, _, [ left; right ]) ->
                 match left, right with
-                | PropertyGet (None, piL, _), PropertyGet (None, piR, _) -> // Case when its a type on both sides, need to serialize the type
-                    let o = invalidOp "Need to write type serializer" // TODO
-                    piL.Name + " = " + addParam o
+                | Var v, PropertyGet (None, pi, []) -> 
+                    let o = 
+                        QuotationEvaluator.EvaluateUntyped right
+                        :?> IFSEntity
+                        |> Serialization.serialize
+                        |> box
+                    
+                    v.Name + " = " + addParam o
+
+                | PropertyGet (None, pi, []), Var v -> 
+                    let o = 
+                        QuotationEvaluator.EvaluateUntyped right
+                        :?> IFSEntity
+                        |> Serialization.serialize
+                        |> box
+
+                    addParam o + " = " + v.Name
+
                 | _ -> builder left + " = " + builder right
             | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left + " < " + builder right
             | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left + " <= " + builder right
@@ -224,13 +256,12 @@ module WhereAndSetStatement =
             | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> builder left + " <> " + builder right
             | IfThenElse (left, right, Value (o, t)) -> builder left + " AND " + builder right // Value(false) for AND
             | IfThenElse (left, Value (o, t), right) -> builder left + " OR " + builder right // Value(true) for OR
-
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
                 List.map builder exprs
                 |> String.concat ", "
-
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
-            | Value (o, t) -> addParam o
+            | ValueWithName (o, t, s) -> "MAKE ME NAME" + s
+            | Value (o, t) -> addParam o // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> builder e + "." + pi.Name
             | PropertyGet (None, pi, _) -> pi.Name
@@ -248,33 +279,34 @@ module private ReturnClause =
     open ClauseHelpers
     open Exception
 
-    let makeNewType (var : Var) (di : Generic.IReadOnlyDictionary<string, obj>) =
-        di.[var.Name] 
+    let makeNewType (key : string) (typ : Type) (di : Generic.IReadOnlyDictionary<string, obj>) =
+        di.[key] 
         :?> IEntity
-        |> Deserialization.deserialize var.Type
-        |> Deserialization.createRecordOrClass var.Type
+        |> Deserialization.deserialize typ
+        |> Deserialization.createRecordOrClass typ
 
     let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
-            let key = fixStringValue typ o
+            let key = QueryStep.FixStringParameter(typ, o)
             let o = Deserialization.fixTypes key typ di.[key]
             Expr.Value(o, typ)
 
         | Var v -> 
             // Need to give the compiler some type info for final cast - so return as a value
             // This may be a bit of a hack, but it works!
-            Expr.Value(makeNewType v di, v.Type)
+            Expr.Value(makeNewType v.Name v.Type di, v.Type)
 
         | PropertyGet (Some (Var v), pi, _) ->
             let key = makePropertyKey v pi
             let o = Deserialization.fixTypes pi.Name pi.PropertyType di.[key]
             Expr.Value(o, pi.PropertyType)
-
+        | PropertyGet (None, pi, []) -> 
+            Expr.Value(makeNewType pi.Name exp.Type di, pi.PropertyType)
         | _ ->
             exp
-            |> sprintf "Trying to extract values but couldn't match expression: %A"
-            |> invalidReturnClause
+            |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
+            |> invalidOp
 
     let make<'T> (e : Expr) =
         let rec inner (exp : Expr) =
@@ -304,8 +336,8 @@ module private ReturnClause =
             | Let (_, _, e2) -> inner e2
             | _ -> 
                 exp
-                |> sprintf "Unrecognized expression: %A"
-                |> invalidReturnClause
+                |> sprintf "RETURN. Unrecognized expression: %A"
+                |> invalidOp
 
         match e with
         | Lambda (_, exp) ->
@@ -319,8 +351,8 @@ module private ReturnClause =
                 statement, result
         | _ -> 
             e
-            |> sprintf "Was not a Lambda : %A"
-            |> invalidReturnClause
+            |> sprintf "RETURN. Was not a Lambda : %A"
+            |> invalidOp
 
 module private BasicClause =
     
@@ -438,6 +470,7 @@ module CypherBuilder =
                     match e with
                     | SpecificCall <@ cypher.Yield @> _ -> state
                     | SpecificCall <@ cypher.For @> (exp, types, [ stepAbove; thisStep ]) -> state
+                    | Let (_ , _, right) -> queryBuilder state right
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MATCH stepAbove thisStep  
                         let statement = MatchClause.make thisStep

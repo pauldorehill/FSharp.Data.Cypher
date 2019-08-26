@@ -145,10 +145,16 @@ module Deserialization =
 
 module Serialization =  
 
+    // TODO : 
+    // Add in options and seq
+    // make a single type check for both serializer and de, passing in the functions
     let fixTypes (o : obj) (pi : PropertyInfo) =
         let typ = pi.PropertyType
-        if typ = typeof<int> then pi.GetValue o :?> int |> int64 |> box
-        elif typ = typeof<string> then pi.GetValue o
+        if typ = typeof<string> then pi.GetValue o
+        elif typ = typeof<int32> then pi.GetValue o :?> int32 |> int64 |> box
+        elif typ = typeof<int64> then pi.GetValue o
+        elif typ = typeof<float> then pi.GetValue o
+        elif typ = typeof<bool> then pi.GetValue o
         else
             typ
             |> sprintf "Unsupported property/value: %s. Type: %A" pi.Name

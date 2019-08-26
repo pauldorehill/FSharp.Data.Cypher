@@ -171,3 +171,9 @@ module ``MATCH Statement`` =
         |> Cypher.queryNonParameterized
         |> fun r -> 
             Assert.Equal("MATCH (p:Person)<-[a:ACTED_IN]->(m:Movie)--(p:Person)-->(p:Person)<--(p:Person)-[a:ACTED_IN]-(m:Movie) RETURN m", r)
+
+// TODO :
+
+// let binding out of comp exp -> should be serialized
+// let binding in comp exp -> becomes var so nothing
+// let binding as passed in parameter -> should be serialized
