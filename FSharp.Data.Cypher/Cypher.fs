@@ -28,9 +28,12 @@ type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj)
     member __.CompleteStep = string clause + " " + statement
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
     static member FixStringParameter (typ : Type, o : obj) = 
-        if typ = typeof<string> then 
-            o :?> string |> QueryStep.FixStringParameter 
+        if typ = typeof<string> then o :?> string |> QueryStep.FixStringParameter 
         else string o
+
+type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
+    member __.Results = results
+    member __.Summary = summary
 
 type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let ChooseParams =
@@ -71,11 +74,8 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
                     |> sprintf "{ %s }"
                 | _ -> string o
 
-            state.Replace("$" + k, v)) 
-        
-type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
-    member __.Results = results
-    member __.Summary = summary
+            state.Replace("$" + k, v))
+
 
 module CypherResult =
 
@@ -84,31 +84,31 @@ module CypherResult =
 
 module Cypher =
 
-    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (accessMode : AccessMode) (map : 'T -> 'U) =
-        use session = driver.Session accessMode
+    // TODO
+    // The Neo4j driver doesn't pass cypher, so can't determine if its read or write. However we are passing it...
+    // So should determine the access mode based off passing the query.  
+    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+        use session = driver.Session()
         try
-            let sr = session.BeginTransaction().Run(cypher.Query, cypher.Parameters)
-            let results = Seq.map (fun (record : IRecord) -> cypher.Continuation record.Values |> map) sr |> Seq.toArray
+            let sr = session.WriteTransaction(fun t -> t.Run(cypher.Query, cypher.Parameters))
+            let results =
+                sr
+                |> Seq.map (fun (record : IRecord) -> cypher.Continuation record.Values |> map)
             CypherResult(results, sr.Summary)
-
         finally
             session.CloseAsync() |> ignore 
 
-    let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
-    
-    let writeMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Write map 
-    let writeMapAsync (driver : IDriver) map (cypher : Cypher<'T>) = async { return writeMap driver map cypher }
+    let run driver cypher = runTransaction cypher driver id
 
-    let write (driver : IDriver) (cypher : Cypher<'T>) = writeMap driver id cypher
-    let writeAsync (driver : IDriver) (cypher : Cypher<'T>) = async { return writeMap driver id cypher }
+    let runMap driver map cypher = runTransaction cypher driver map
 
-    let readMap (driver : IDriver) map (cypher : Cypher<'T>) = runTransaction cypher driver AccessMode.Read map
-    let readMapAsync (driver : IDriver) map (cypher : Cypher<'T>) = async { return readMap driver map cypher }
+    let runAsync driver cypher = async { return runTransaction cypher driver id }
 
-    let read (driver : IDriver) (cypher : Cypher<'T>) = readMap driver id cypher
-    let readAsync (driver : IDriver) (cypher : Cypher<'T>) = async { return read driver cypher }
+    let runMapAsync driver map cypher = async { return runTransaction cypher driver map }
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
+
+    let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
 
 module private Loggers =
 

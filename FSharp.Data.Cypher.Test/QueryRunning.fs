@@ -22,7 +22,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN true
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(true, r)
@@ -32,7 +32,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN false
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(false, r)
@@ -42,7 +42,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5, r)
@@ -52,7 +52,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5L
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5L, r)
@@ -62,7 +62,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN 5.5
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5.5, r)
@@ -72,7 +72,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN "EMU"
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal("EMU", r)
@@ -81,7 +81,7 @@ module ``Primtive Types`` =
         cypher {
             RETURN (true, false, 5, 7L, 5.5, "EMU")
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
@@ -145,7 +145,7 @@ module ``Complex Queries with Record Types`` =
             MATCH (p -| a |-> m <-| d |- p)
             RETURN (m.title, m.released)
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun (s, i) -> 
@@ -162,7 +162,7 @@ module ``Complex Queries with Record Types`` =
             MATCH (p -| a |-> m <-| d |- p)
             RETURN (m, p, a, d)
         }
-        |> Cypher.read driver
+        |> Cypher.run driver
         |> CypherResult.results
         |> Seq.head
         |> fun (m, p, a, d) -> 
