@@ -145,7 +145,6 @@ module Deserialization =
 
 module Serialization =  
 
-
     let makeOption<'T> (o : obj) = 
         match o :?> 'T option with
         | Some _ -> Some o
@@ -164,56 +163,56 @@ module Serialization =
     // TODO : 
     // Add in options and seq
     // make a single type check for both serializer and de, passing in the functions
-    let fixTypes (o : obj) (pi : PropertyInfo) =
-        let v = pi.GetValue o
-        let typ = pi.PropertyType
-        if typ = typeof<string> then Some v
-        elif typ = typeof<int64> then Some v
-        elif typ = typeof<int32> then Some v //:?> int32 |> int64 |> box
-        elif typ = typeof<float> then Some v
-        elif typ = typeof<bool> then Some v
+    let fixTypes typ (o : obj) =
 
-        elif typ = typeof<string option> then makeOption<string> v
-        elif typ = typeof<int64 option> then makeOption<int64> v
-        elif typ = typeof<int32 option> then makeOption<int32> v
-        elif typ = typeof<float option> then makeOption<float> v
-        elif typ = typeof<bool option> then makeOption<bool> v
+        if typ = typeof<string> then Some o
+        elif typ = typeof<int64> then Some o
+        elif typ = typeof<int32> then Some o //:?> int32 |> int64 |> box
+        elif typ = typeof<float> then Some o
+        elif typ = typeof<bool> then Some o
 
-        elif typ = typeof<string seq> then checkCollection<string> v
-        elif typ = typeof<int64 seq> then checkCollection<int64> v
-        elif typ = typeof<int32 seq> then checkCollection<int32> v
-        elif typ = typeof<float seq> then checkCollection<float> v
-        elif typ = typeof<bool seq> then checkCollection<bool> v
+        elif typ = typeof<string option> then makeOption<string> o
+        elif typ = typeof<int64 option> then makeOption<int64> o
+        elif typ = typeof<int32 option> then makeOption<int32> o
+        elif typ = typeof<float option> then makeOption<float> o
+        elif typ = typeof<bool option> then makeOption<bool> o
+
+        elif typ = typeof<string seq> then checkCollection<string> o
+        elif typ = typeof<int64 seq> then checkCollection<int64> o
+        elif typ = typeof<int32 seq> then checkCollection<int32> o
+        elif typ = typeof<float seq> then checkCollection<float> o
+        elif typ = typeof<bool seq> then checkCollection<bool> o
             
-        elif typ = typeof<string array> then checkCollection<string> v
-        elif typ = typeof<int64 array> then checkCollection<int64> v
-        elif typ = typeof<int32 array> then checkCollection<int32> v
-        elif typ = typeof<float array> then checkCollection<float> v
-        elif typ = typeof<bool array> then checkCollection<bool> v
+        elif typ = typeof<string array> then checkCollection<string> o
+        elif typ = typeof<int64 array> then checkCollection<int64> o
+        elif typ = typeof<int32 array> then checkCollection<int32> o
+        elif typ = typeof<float array> then checkCollection<float> o
+        elif typ = typeof<bool array> then checkCollection<bool> o
             
-        elif typ = typeof<string list> then checkCollection<string> v
-        elif typ = typeof<int64 list> then checkCollection<int64> v
-        elif typ = typeof<int32 list> then checkCollection<int32> v
-        elif typ = typeof<float list> then checkCollection<float> v
-        elif typ = typeof<bool list> then checkCollection<bool> v
+        elif typ = typeof<string list> then checkCollection<string> o
+        elif typ = typeof<int64 list> then checkCollection<int64> o
+        elif typ = typeof<int32 list> then checkCollection<int32> o
+        elif typ = typeof<float list> then checkCollection<float> o
+        elif typ = typeof<bool list> then checkCollection<bool> o
             
-        elif typ = typeof<string Set> then checkCollection<string> v
-        elif typ = typeof<int64 Set> then checkCollection<int64> v
-        elif typ = typeof<int32 Set> then checkCollection<int32> v
-        elif typ = typeof<float Set> then checkCollection<float> v
-        elif typ = typeof<bool Set> then checkCollection<bool> v
+        elif typ = typeof<string Set> then checkCollection<string> o
+        elif typ = typeof<int64 Set> then checkCollection<int64> o
+        elif typ = typeof<int32 Set> then checkCollection<int32> o
+        elif typ = typeof<float Set> then checkCollection<float> o
+        elif typ = typeof<bool Set> then checkCollection<bool> o
         
         else
             typ
-            |> sprintf "Unsupported property/value: %s. Type: %A" pi.Name
+            |> sprintf "Unsupported property/value: %s. Type: %A" typ.Name
             |> invalidOp
-        |> Option.map (fun o -> pi.Name, o)
 
     let serialize (e : #IFSEntity) =
         let typ = e.GetType()
         typ
         |> Deserialization.getProperties
-        |> Array.choose (fixTypes e)
+        |> Array.choose (fun pi -> 
+            fixTypes pi.PropertyType (pi.GetValue e)
+            |> Option.map (fun o -> pi.Name, o))
         |> Map.ofArray
         |> Generic.Dictionary
 

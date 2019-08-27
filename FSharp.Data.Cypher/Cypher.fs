@@ -14,14 +14,12 @@ open FSharp.Data.Cypher
 
 type Query<'T> = NA
 
-exception InvalidMatchClause of string
-
 type Clause = 
     | Clause of string
     member this.Value = match this with | Clause x -> x
     override this.ToString() = this.Value.Replace("_", " ")
 
-type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj) list ) =
+type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj option) list ) =
     member __.Clause = clause
     member __.Statement = statement
     member __.Parameters = parameters
@@ -36,46 +34,43 @@ type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
     member __.Summary = summary
 
 type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
-    let ChooseParams =
-        querySteps
-        |> List.choose (fun x -> x.Parameters)
-        |> List.concat
-    
     let MakeQuery sep =
         querySteps
         |> List.map (fun x -> x.CompleteStep)
         |> String.concat sep
 
     member __.QuerySteps = querySteps
-
     member __.Continuation = continuation
-
-    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
-    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
     member __.Parameters =
-        ChooseParams
-        |> dict
-        |> Generic.Dictionary
+        querySteps
+        |> List.choose (fun x -> x.Parameters)
+        |> List.concat
 
     member __.Query = MakeQuery " "
-
     member __.QueryMultiline = MakeQuery Environment.NewLine
 
-    member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this
-        (this.Query, ChooseParams)
+    member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this. Also match on other types e.g Generic.List
+        (this.Query, this.Parameters)
         ||> List.fold (fun state (k, o) -> 
-            let v = 
+            let v =
                 match o with
-                | :? string as s -> QueryStep.FixStringParameter s
-                | :? Generic.Dictionary<string, obj> as d ->  
-                    d 
-                    |> Seq.map (fun kv -> kv.Key + " : " + QueryStep.FixStringParameter(kv.Value.GetType(), kv.Value))
-                    |> String.concat ", "
-                    |> sprintf "{ %s }"
-                | _ -> string o
+                | Some o ->
+                    match o with
+                    | :? string as s -> QueryStep.FixStringParameter s
+                    | :? Generic.List<obj> as xs ->
+                        xs
+                        |> Seq.map string
+                        |> String.concat ", "
+                        |> sprintf "[ %s ]"
+                    | :? Generic.Dictionary<string, obj> as d ->
+                        d 
+                        |> Seq.map (fun kv -> kv.Key + " : " + QueryStep.FixStringParameter(kv.Value.GetType(), kv.Value))
+                        |> String.concat ", "
+                        |> sprintf "{ %s }"
+                    | _ -> string o
+                | None -> "null"
 
             state.Replace("$" + k, v))
-
 
 module CypherResult =
 
@@ -88,12 +83,19 @@ module Cypher =
     // The Neo4j driver doesn't pass cypher, so can't determine if its read or write. However we are passing it...
     // So should determine the access mode based off passing the query.  
     let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+        
+        // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
+        // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
+        let prms =
+            cypher.Parameters
+            |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
+            |> dict
+            |> Generic.Dictionary
+
         use session = driver.Session()
         try
-            let sr = session.WriteTransaction(fun t -> t.Run(cypher.Query, cypher.Parameters))
-            let results =
-                sr
-                |> Seq.map (fun (record : IRecord) -> cypher.Continuation record.Values |> map)
+            let sr = session.WriteTransaction(fun t -> t.Run(cypher.Query, prms))
+            let results = sr |> Seq.map (fun record -> cypher.Continuation record.Values |> map)
             CypherResult(results, sr.Summary)
         finally
             session.CloseAsync() |> ignore 
@@ -119,16 +121,8 @@ module private Loggers =
         printfn "Steps above:" 
         printfn "%A" stepAbove
 
-module Exception =
-    
-    let invalidMatchClause e = InvalidMatchClause e |> raise
-
-    //let invalidReturnClause e = InvalidReturnClause e |> raise
-
 module private MatchClause =
     
-    open Exception
-
     let [<Literal>] private IFSNode = "IFSNode"
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
@@ -181,8 +175,8 @@ module private MatchClause =
                 |> makeLabels pi.Name
             | _ -> 
                 expr
-                |> sprintf "Unable to build ascii statement: %A"
-                |> invalidMatchClause
+                |> sprintf "MATCH. Unable to build ascii statement: %A"
+                |> invalidOp
     
         inner expr
 
@@ -191,8 +185,8 @@ module private MatchClause =
         | Lambda (v, exp) -> buildAscii exp
         | _ -> 
             expr
-            |> sprintf "Step was not a Lambda as expected : %A"
-            |> invalidMatchClause
+            |> sprintf "MATCH. Step was not a Lambda as expected : %A"
+            |> invalidOp
  
 module private ClauseHelpers =  
     
@@ -221,8 +215,10 @@ module WhereAndSetStatement =
     let make (e : Expr) =
         let mutable parameters = List.Empty
     
+        // TODO : Not sure should call.Value... though it will 
         let addParam o =
             let key = makeKey 20
+            let o = Serialization.fixTypes (o.GetType()) o
             parameters <- (key, o) :: parameters
             "$" + key
                 
@@ -261,6 +257,12 @@ module WhereAndSetStatement =
                 List.map builder exprs
                 |> String.concat ", "
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> // Lists
+                let o = Evaluator.QuotationEvaluator.EvaluateUntyped e
+                addParam o
+            | NewArray (_, _) ->
+                let o = Evaluator.QuotationEvaluator.EvaluateUntyped e
+                addParam o
             | ValueWithName (o, t, s) -> "MAKE ME NAME" + s
             | Value (o, t) -> addParam o // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." used for options .Value
@@ -278,7 +280,6 @@ module WhereAndSetStatement =
 module private ReturnClause =
 
     open ClauseHelpers
-    open Exception
 
     let makeNewType (key : string) (typ : Type) (di : Generic.IReadOnlyDictionary<string, obj>) =
         di.[key] 
