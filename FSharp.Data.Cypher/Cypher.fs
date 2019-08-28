@@ -12,12 +12,104 @@ open FSharp.Quotations.Evaluator
 open Neo4j.Driver.V1
 open FSharp.Data.Cypher
 
-type Query<'T> = NA
+module ClauseNames =
+    
+    let [<Literal>] MATCH = "MATCH"
+    let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
+    let [<Literal>] CREATE = "CREATE"
+    let [<Literal>] MERGE = "MERGE"
+    let [<Literal>] WHERE = "WHERE"
+    let [<Literal>] SET = "SET"
+    let [<Literal>] RETURN = "RETURN"
+    let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
+    let [<Literal>] ORDER_BY = "ORDER_BY"
+    let [<Literal>] SKIP = "SKIP"
+    let [<Literal>] LIMIT = "LIMIT"
+    // TO DO - here for write/read check completenets
+    let [<Literal>] DELETE = "DELETE"
+    let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
+    let [<Literal>] REMOVE = "REMOVE"
+    let [<Literal>] FOREACH = "FOREACH"
 
 type Clause = 
-    | Clause of string
-    member this.Value = match this with | Clause x -> x
-    override this.ToString() = this.Value.Replace("_", " ")
+    | MATCH
+    | OPTIONAL_MATCH
+    | CREATE
+    | MERGE
+    | WHERE
+    | SET
+    | RETURN
+    | RETURN_DISTINCT
+    | ORDER_BY
+    | SKIP
+    | LIMIT
+    | DELETE
+    | DETACH_DELETE
+    | REMOVE
+    | FOREACH
+    override this.ToString() = 
+        match this with
+        | MATCH -> ClauseNames.MATCH
+        | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
+        | CREATE -> ClauseNames.CREATE
+        | MERGE -> ClauseNames.MERGE
+        | WHERE -> ClauseNames.WHERE
+        | SET -> ClauseNames.SET
+        | RETURN -> ClauseNames.RETURN
+        | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
+        | ORDER_BY -> ClauseNames.ORDER_BY
+        | SKIP -> ClauseNames.SKIP
+        | LIMIT -> ClauseNames.LIMIT
+        | DELETE -> ClauseNames.DELETE
+        | DETACH_DELETE -> ClauseNames.DETACH_DELETE
+        | REMOVE -> ClauseNames.REMOVE
+        | FOREACH -> ClauseNames.FOREACH
+        |> fun s -> s.Replace("_", " ")
+    member this.IsWrite =   
+        match this with
+        | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
+        | _ -> false
+    member this.IsRead = not(this.IsWrite)
+        
+module Clause =
+    
+    let isRead (clause : Clause) = clause.IsRead
+    let isWrite (clause : Clause) = clause.IsWrite
+
+type CypherResult<'T>(results : 'T [], summary : IResultSummary) =
+    member __.Results = results
+    member __.Summary = summary
+
+module CypherResult =
+
+    let results (cr : CypherResult<'T>) = cr.Results
+
+    let summary (cr : CypherResult<'T>) = cr.Summary
+
+//type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, transaction : ITransaction) =
+//    member __.Results = results
+//    member __.Summary = summary
+//    member __.Transaction = transaction
+//    member this.AsyncCommit() = this.Transaction.CommitAsync() |> Async.AwaitTask 
+//    member this.Commit() = this.Transaction.CommitAsync() |> Async.AwaitTask |> Async.RunSynchronously
+//    member this.AsyncRollback() = this.Transaction.RollbackAsync() |> Async.AwaitTask
+//    member this.Rollback() = this.Transaction.RollbackAsync() |> Async.AwaitTask |> Async.RunSynchronously
+
+//module CypherTransaction =
+
+//    let results (cr : CypherTransaction<'T>) = cr.Results
+    
+//    let summary (cr : CypherTransaction<'T>) = cr.Summary
+    
+//    let transaction (cr : CypherTransaction<'T>) = cr.Transaction
+
+//    let commit (cr : CypherTransaction<'T>) = cr.Commit()
+    
+//    let rollback (cr : CypherTransaction<'T>) = cr.Rollback()
+
+//    let asyncCommit (cr : CypherTransaction<'T>) = cr.AsyncCommit()
+    
+//    let asyncRollback (cr : CypherTransaction<'T>) = cr.AsyncRollback()
 
 type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj option) list ) =
     member __.Clause = clause
@@ -28,10 +120,6 @@ type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj 
     static member FixStringParameter (typ : Type, o : obj) = 
         if typ = typeof<string> then o :?> string |> QueryStep.FixStringParameter 
         else string o
-
-type CypherResult<'T>(results : 'T seq, summary : IResultSummary) =
-    member __.Results = results
-    member __.Summary = summary
 
 type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let MakeQuery sep =
@@ -48,6 +136,9 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
 
     member __.Query = MakeQuery " "
     member __.QueryMultiline = MakeQuery Environment.NewLine
+    member __.IsWriteQuery = 
+        querySteps 
+        |> List.exists (fun x -> x.Clause.IsWrite)
 
     member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this. Also match on other types e.g Generic.List
         (this.Query, this.Parameters)
@@ -72,30 +163,28 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
 
             state.Replace("$" + k, v))
 
-module CypherResult =
-
-    let results (cr : CypherResult<'T>) = cr.Results
-    let summary (cr : CypherResult<'T>) = cr.Summary
-
 module Cypher =
 
-    // TODO
-    // The Neo4j driver doesn't pass cypher, so can't determine if its read or write. However we are passing it...
-    // So should determine the access mode based off passing the query.  
-    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
-        
-        // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
-        // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
-        let prms =
-            cypher.Parameters
-            |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
-            |> dict
-            |> Generic.Dictionary
+    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
+    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
+    // private as it introduces null
+    let private makeParameters (cypher : Cypher<'T>) =
+        cypher.Parameters
+        |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
+        |> dict
+        |> Generic.Dictionary
 
+    // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
+    // Should I use array / parallel here? Lots of reflecion so may be worth while? 
+    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
         use session = driver.Session()
         try
-            let sr = session.WriteTransaction(fun t -> t.Run(cypher.Query, prms))
-            let results = sr |> Seq.map (fun record -> cypher.Continuation record.Values |> map)
+            let run (t : ITransaction) = t.Run(cypher.Query, makeParameters cypher)
+            let sr = if cypher.IsWriteQuery then session.WriteTransaction run else session.ReadTransaction run
+            let results = 
+                sr 
+                |> Seq.toArray 
+                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
             CypherResult(results, sr.Summary)
         finally
             session.CloseAsync() |> ignore 
@@ -104,13 +193,37 @@ module Cypher =
 
     let runMap driver map cypher = runTransaction cypher driver map
 
-    let runAsync driver cypher = async { return runTransaction cypher driver id }
+    let asyncRun driver cypher = async { return runTransaction cypher driver id }
 
-    let runMapAsync driver map cypher = async { return runTransaction cypher driver map }
+    let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
     let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
+
+    //module Explicit =
+    
+    //    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+    //        use session = if cypher.IsWriteQuery then driver.Session AccessMode.Write else driver.Session AccessMode.Read
+    //        try
+    //            let transaction = session.BeginTransaction()
+    //            let sr = transaction.Run(cypher.Query, makeParameters cypher)
+    //            let results = 
+    //                sr 
+    //                |> Seq.toArray 
+    //                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+                
+    //            CypherTransaction(results, sr.Summary, transaction)
+    //        finally
+    //            session.CloseAsync() |> ignore 
+        
+    //    let run driver cypher = runTransaction cypher driver id
+
+    //    let runMap driver map cypher = runTransaction cypher driver map
+
+    //    let asyncRun driver cypher = async { return runTransaction cypher driver id }
+
+    //    let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
 
 module private Loggers =
 
@@ -204,7 +317,7 @@ module private ClauseHelpers =
             |> sprintf "Trying to extract statement but couldn't match expression: %A"
             |> invalidOp
 
-module WhereAndSetStatement =
+module private WhereAndSetStatement =
 
     let private rnd = Random()
     let private chars = "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz".ToCharArray()
@@ -214,8 +327,7 @@ module WhereAndSetStatement =
 
     let make (e : Expr) =
         let mutable parameters = List.Empty
-    
-        // TODO : Not sure should call.Value... though it will 
+       
         let addParam o =
             let key = makeKey 20
             let o = Serialization.fixTypes (o.GetType()) o
@@ -257,12 +369,8 @@ module WhereAndSetStatement =
                 List.map builder exprs
                 |> String.concat ", "
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> // Lists
-                let o = Evaluator.QuotationEvaluator.EvaluateUntyped e
-                addParam o
-            | NewArray (_, _) ->
-                let o = Evaluator.QuotationEvaluator.EvaluateUntyped e
-                addParam o
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> QuotationEvaluator.EvaluateUntyped e |> addParam
+            | NewArray (_, _) -> QuotationEvaluator.EvaluateUntyped e |> addParam
             | ValueWithName (o, t, s) -> "MAKE ME NAME" + s
             | Value (o, t) -> addParam o // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." used for options .Value
@@ -379,20 +487,6 @@ module private BasicClause =
             |> sprintf "BASIC CLAUSE: Unrecognized expression: %A"
             |> invalidOp
 
-module private Clause =
-    
-    let [<Literal>] MATCH = "MATCH"
-    let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
-    let [<Literal>] CREATE = "CREATE"
-    let [<Literal>] MERGE = "MERGE"
-    let [<Literal>] WHERE = "WHERE"
-    let [<Literal>] SET = "SET"
-    let [<Literal>] RETURN = "RETURN"
-    let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
-    let [<Literal>] ORDER_BY = "ORDER_BY"
-    let [<Literal>] SKIP = "SKIP"
-    let [<Literal>] LIMIT = "LIMIT"
-
 [<AutoOpen>]
 module CypherBuilder =
     // Initial help came from this great article by Thomas Petricek
@@ -400,8 +494,9 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
-    open Clause
     open Loggers
+    
+    type Query<'T> = NA
 
     type private ReturnContination<'T> = 
         | ReturnContination of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
@@ -425,39 +520,39 @@ module CypherBuilder =
         
         // Cypher Queries
         // All match statements must end in a Node, one bug here if only use a single operator its still returns IFSNode
-        [<CustomOperation(MATCH, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
         member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
         
-        [<CustomOperation(OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
         member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
         
-        [<CustomOperation(CREATE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
         member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
         
-        [<CustomOperation(MERGE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
         member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
         
-        [<CustomOperation(WHERE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member __.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
-        [<CustomOperation(SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
         member __.SET(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
 
-        [<CustomOperation(RETURN, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.RETURN, MaintainsVariableSpace = true)>]
         member __.RETURN(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
-        [<CustomOperation(RETURN_DISTINCT, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
         member __.RETURN_DISTINCT(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         // Can't get this to work with intellisense
         // Might need to change the type to have 2 x generics so can carry the final type
-        [<CustomOperation(ORDER_BY, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.ORDER_BY, MaintainsVariableSpace = true)>]
         member __.ORDER_BY(source : Query<'T>, [<ProjectionParameter>] f) : Query<'T> = NA
         
-        [<CustomOperation(SKIP, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.SKIP, MaintainsVariableSpace = true)>]
         member __.SKIP(source : Query<'T>, f : int64) : Query<'T> = NA
         
-        [<CustomOperation(LIMIT, MaintainsVariableSpace = true)>]
+        [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
         member __.LIMIT(source : Query<'T>, f : int64) : Query<'T> = NA
 
         member __.Quote(query : Expr<Query<'T>>) = NA
@@ -476,67 +571,67 @@ module CypherBuilder =
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MATCH stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(Clause MATCH, statement) :: state
+                        let newState = QueryStep(MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     // TODO: This can RETURN some nulls.. need to look further into that
                     | SpecificCall <@ cypher.OPTIONAL_MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.OPTIONAL_MATCH stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(Clause OPTIONAL_MATCH, statement) :: state
+                        let newState = QueryStep(OPTIONAL_MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.CREATE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.CREATE stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(Clause CREATE, statement) :: state
+                        let newState = QueryStep(CREATE, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.MERGE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MERGE stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(Clause MERGE, statement) :: state
+                        let newState = QueryStep(MERGE, statement) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.WHERE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.WHERE stepAbove thisStep  
                         let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = QueryStep(Clause WHERE, statement, prms) :: state
+                        let newState = QueryStep(WHERE, statement, prms) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.SET @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.SET stepAbove thisStep  
                         let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = QueryStep(Clause SET, statement, prms) :: state
+                        let newState = QueryStep(SET, statement, prms) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.RETURN stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = QueryStep(Clause RETURN, statement) :: state
+                        let newState = QueryStep(RETURN, statement) :: state
                         returnStatement <- returnStatement.Update continuation
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN_DISTINCT @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.RETURN_DISTINCT stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = QueryStep(Clause RETURN_DISTINCT, statement) :: state
+                        let newState = QueryStep(RETURN_DISTINCT, statement) :: state
                         returnStatement <- returnStatement.Update continuation
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.ORDER_BY @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(Clause ORDER_BY, statement) :: state
+                        let newState = QueryStep(ORDER_BY, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.SKIP @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(Clause SKIP, statement) :: state
+                        let newState = QueryStep(SKIP, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.LIMIT @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(Clause LIMIT, statement) :: state
+                        let newState = QueryStep(LIMIT, statement) :: state
                         queryBuilder newState stepAbove
 
                     | _ -> 

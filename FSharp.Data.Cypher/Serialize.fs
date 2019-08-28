@@ -91,8 +91,6 @@ module Deserialization =
     // will need to revisit how handle classes - currently just parameterless for now to allow
     // for relationships with no properties
 
-    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
-    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     
     let getProperties (typ : Type) =
         let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
@@ -112,6 +110,8 @@ module Deserialization =
                     |> sprintf "Could not deserialize IEntity from the graph. The required property was not found: %s"
                     |> invalidOp)
 
+    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
+    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     let createRecordOrClass (typ : Type) (obs : obj []) =
         if FSharpType.IsRecord typ then FSharpValue.MakeRecord(typ, obs)
         elif typ.IsClass then
