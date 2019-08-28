@@ -74,6 +74,7 @@ type Clause =
 module Clause =
     
     let isRead (clause : Clause) = clause.IsRead
+
     let isWrite (clause : Clause) = clause.IsWrite
 
 type CypherResult<'T>(results : 'T [], summary : IResultSummary) =
@@ -86,30 +87,41 @@ module CypherResult =
 
     let summary (cr : CypherResult<'T>) = cr.Summary
 
-//type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, transaction : ITransaction) =
-//    member __.Results = results
-//    member __.Summary = summary
-//    member __.Transaction = transaction
-//    member this.AsyncCommit() = this.Transaction.CommitAsync() |> Async.AwaitTask 
-//    member this.Commit() = this.Transaction.CommitAsync() |> Async.AwaitTask |> Async.RunSynchronously
-//    member this.AsyncRollback() = this.Transaction.RollbackAsync() |> Async.AwaitTask
-//    member this.Rollback() = this.Transaction.RollbackAsync() |> Async.AwaitTask |> Async.RunSynchronously
+type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
+    member __.Results = results
+    member __.Summary = summary
+    member __.Session = session
+    member __.Transaction = transaction
+    member this.AsyncCommit() = 
+        async {
+            do! this.Transaction.CommitAsync() |> Async.AwaitTask
+            this.Session.Dispose()
+            return CypherResult(this.Results, this.Summary)
+        }
+    member this.Commit() = this.AsyncCommit() |> Async.RunSynchronously
+    member this.AsyncRollback() =
+        async {
+            do! this.Transaction.RollbackAsync() |> Async.AwaitTask
+            this.Session.Dispose()
+            return ()
+        }
+    member this.Rollback() = this.AsyncRollback() |> Async.RunSynchronously
 
-//module CypherTransaction =
+module CypherTransaction =
 
-//    let results (cr : CypherTransaction<'T>) = cr.Results
+    let results (cr : CypherTransaction<'T>) = cr.Results
     
-//    let summary (cr : CypherTransaction<'T>) = cr.Summary
+    let summary (cr : CypherTransaction<'T>) = cr.Summary
     
-//    let transaction (cr : CypherTransaction<'T>) = cr.Transaction
+    let transaction (cr : CypherTransaction<'T>) = cr.Transaction
 
-//    let commit (cr : CypherTransaction<'T>) = cr.Commit()
+    let commit (cr : CypherTransaction<'T>) = cr.Commit()
     
-//    let rollback (cr : CypherTransaction<'T>) = cr.Rollback()
+    let rollback (cr : CypherTransaction<'T>) = cr.Rollback()
 
-//    let asyncCommit (cr : CypherTransaction<'T>) = cr.AsyncCommit()
+    let asyncCommit (cr : CypherTransaction<'T>) = cr.AsyncCommit()
     
-//    let asyncRollback (cr : CypherTransaction<'T>) = cr.AsyncRollback()
+    let asyncRollback (cr : CypherTransaction<'T>) = cr.AsyncRollback()
 
 type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj option) list ) =
     member __.Clause = clause
@@ -136,10 +148,7 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
 
     member __.Query = MakeQuery " "
     member __.QueryMultiline = MakeQuery Environment.NewLine
-    member __.IsWriteQuery = 
-        querySteps 
-        |> List.exists (fun x -> x.Clause.IsWrite)
-
+    member __.IsWrite = querySteps |> List.exists (fun x -> x.Clause.IsWrite)
     member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this. Also match on other types e.g Generic.List
         (this.Query, this.Parameters)
         ||> List.fold (fun state (k, o) -> 
@@ -180,14 +189,17 @@ module Cypher =
         use session = driver.Session()
         try
             let run (t : ITransaction) = t.Run(cypher.Query, makeParameters cypher)
-            let sr = if cypher.IsWriteQuery then session.WriteTransaction run else session.ReadTransaction run
+            let sr = if cypher.IsWrite then session.WriteTransaction run else session.ReadTransaction run
             let results = 
                 sr 
                 |> Seq.toArray 
                 |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
             CypherResult(results, sr.Summary)
         finally
-            session.CloseAsync() |> ignore 
+            session.CloseAsync()
+            |> Async.AwaitTask
+            |> Async.RunSynchronously 
+            |> ignore 
 
     let run driver cypher = runTransaction cypher driver id
 
@@ -201,29 +213,32 @@ module Cypher =
 
     let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
 
-    //module Explicit =
+    module Explicit =
     
-    //    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
-    //        use session = if cypher.IsWriteQuery then driver.Session AccessMode.Write else driver.Session AccessMode.Read
-    //        try
-    //            let transaction = session.BeginTransaction()
-    //            let sr = transaction.Run(cypher.Query, makeParameters cypher)
-    //            let results = 
-    //                sr 
-    //                |> Seq.toArray 
-    //                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
-                
-    //            CypherTransaction(results, sr.Summary, transaction)
-    //        finally
-    //            session.CloseAsync() |> ignore 
+        let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+            let session = if cypher.IsWrite then driver.Session AccessMode.Write else driver.Session AccessMode.Read
+            try
+                let transaction = session.BeginTransaction()
+                let sr = transaction.Run(cypher.Query, makeParameters cypher)
+                let results = 
+                    sr 
+                    |> Seq.toArray 
+                    |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+                CypherTransaction(results, sr.Summary, session, transaction)
+            with e ->
+                session.CloseAsync()
+                |> Async.AwaitTask
+                |> Async.RunSynchronously 
+                |> ignore  
+                raise e
         
-    //    let run driver cypher = runTransaction cypher driver id
+        let run driver cypher = runTransaction cypher driver id
 
-    //    let runMap driver map cypher = runTransaction cypher driver map
+        let runMap driver map cypher = runTransaction cypher driver map
 
-    //    let asyncRun driver cypher = async { return runTransaction cypher driver id }
+        let asyncRun driver cypher = async { return runTransaction cypher driver id }
 
-    //    let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
+        let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
 
 module private Loggers =
 

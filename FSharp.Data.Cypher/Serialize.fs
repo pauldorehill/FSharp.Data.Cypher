@@ -90,7 +90,6 @@ module Deserialization =
     // also if there is a const member this.V = "Value" that is impossible to filter out with BindingFlags
     // will need to revisit how handle classes - currently just parameterless for now to allow
     // for relationships with no properties
-
     
     let getProperties (typ : Type) =
         let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
