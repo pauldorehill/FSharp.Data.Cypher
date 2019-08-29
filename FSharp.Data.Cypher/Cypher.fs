@@ -202,10 +202,10 @@ module Cypher =
         |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
         |> dict
         |> Generic.Dictionary
-
+    
     // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
     // Should I use array / parallel here? Lots of reflecion so may be worth while? 
-    let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+    let private runTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
         use session = driver.Session()
         try
             let run (t : ITransaction) = t.Run(cypher.Query, makeParameters cypher)
@@ -221,13 +221,13 @@ module Cypher =
             |> Async.RunSynchronously 
             |> ignore 
 
-    let run driver cypher = runTransaction cypher driver id
+    let runMap (driver : IDriver) map cypher = runTransaction driver map cypher
 
-    let runMap driver map cypher = runTransaction cypher driver map
+    let run (driver : IDriver) cypher = runMap driver id cypher
 
-    let asyncRun driver cypher = async { return runTransaction cypher driver id }
+    let asyncRun driver cypher = async { return run driver cypher }
 
-    let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
+    let asyncRunMap driver map cypher = async { return runMap driver map cypher }
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
@@ -235,30 +235,30 @@ module Cypher =
 
     module Explicit =
     
-        let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
+        let private runTransaction (session : ISession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
+            let transaction = session.BeginTransaction()
+            let sr = transaction.Run(cypher.Query, makeParameters cypher)
+            let results = 
+                sr 
+                |> Seq.toArray 
+                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+            TransactionResult(results, sr.Summary, session, transaction)
+        
+        let runMap (driver : IDriver) map (cypher : Cypher<'T>) =
             use session = if cypher.IsWrite then driver.Session AccessMode.Write else driver.Session AccessMode.Read
-            try
-                let transaction = session.BeginTransaction()
-                let sr = transaction.Run(cypher.Query, makeParameters cypher)
-                let results = 
-                    sr 
-                    |> Seq.toArray 
-                    |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
-                TransactionResult(results, sr.Summary, session, transaction)
+            try runTransaction session map cypher
             with e ->
                 session.CloseAsync()
                 |> Async.AwaitTask
                 |> Async.RunSynchronously 
                 |> ignore  
                 raise e
-        
-        let run driver cypher = runTransaction cypher driver id
 
-        let runMap driver map cypher = runTransaction cypher driver map
+        let run (driver : IDriver) cypher = runMap driver id cypher
 
-        let asyncRun driver cypher = async { return runTransaction cypher driver id }
+        let asyncRun driver cypher = async { return run driver cypher }
 
-        let asyncRunMap driver map cypher = async { return runTransaction cypher driver map }
+        let asyncRunMap driver map cypher = async { return runMap driver map cypher }
 
 module private Loggers =
 
@@ -532,12 +532,12 @@ module CypherBuilder =
         | Empty
         member this.Update v =
             match this with
-            | ReturnContination _ -> invalidOp "Only 1 x RETURN statement is allowed in a Cypher query."
+            | ReturnContination _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
             | Empty -> ReturnContination v
         member this.Value =
             match this with
             | ReturnContination v -> v
-            | Empty -> invalidOp "A Cypher query must contain a RETURN clause" 
+            | Empty -> invalidOp "A Cypher query must contain a RETURN clause" // Not strictly true... DELETE doesn't
 
     type CypherBuilder() =
         
@@ -572,6 +572,12 @@ module CypherBuilder =
         
         [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
         member __.RETURN_DISTINCT(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        
+        [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
+        member __.DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        
+        [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
+        member __.DETACH_DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         // Can't get this to work with intellisense
         // Might need to change the type to have 2 x generics so can carry the final type
@@ -646,6 +652,16 @@ module CypherBuilder =
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
                         let newState = NonParameterized(RETURN_DISTINCT, statement) :: state
                         returnStatement <- returnStatement.Update continuation
+                        queryBuilder newState stepAbove
+
+                    | SpecificCall <@ cypher.DELETE @> (exp, types, [ stepAbove; thisStep ]) ->
+                        let statement = BasicClause.make thisStep
+                        let newState = NonParameterized(DELETE, statement) :: state
+                        queryBuilder newState stepAbove
+
+                    | SpecificCall <@ cypher.DETACH_DELETE @> (exp, types, [ stepAbove; thisStep ]) ->
+                        let statement = BasicClause.make thisStep
+                        let newState = NonParameterized(DETACH_DELETE, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.ORDER_BY @> (exp, types, [ stepAbove; thisStep ]) ->
