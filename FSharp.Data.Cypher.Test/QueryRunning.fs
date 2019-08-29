@@ -86,7 +86,7 @@ module ``Primtive Types`` =
         |> Seq.head
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
 
-module ``All Types Allowed on Record`` =
+module ``Deserialize all allowed Types on a Record`` =
     
     let spoofDic =  
         [ "allAllowedSome", box ``All Allowed``.allAllowedSome

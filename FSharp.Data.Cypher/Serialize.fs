@@ -146,7 +146,7 @@ module Serialization =
 
     let makeOption<'T> (o : obj) = 
         match o :?> 'T option with
-        | Some _ -> Some o
+        | Some o -> Some (box o) 
         | None -> None
 
     let checkCollection<'T> (rtnObj : obj) =
@@ -210,8 +210,9 @@ module Serialization =
         typ
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
-            fixTypes pi.PropertyType (pi.GetValue e)
-            |> Option.map (fun o -> pi.Name, o))
+            match fixTypes pi.PropertyType (pi.GetValue e) with
+            | Some o -> Some (pi.Name , o)
+            | None -> None)
         |> Map.ofArray
         |> Generic.Dictionary
 
