@@ -23,7 +23,7 @@ module ``Primtive Types`` =
             RETURN true
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(true, r)
     
@@ -33,7 +33,7 @@ module ``Primtive Types`` =
             RETURN false
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(false, r)
         
@@ -43,7 +43,7 @@ module ``Primtive Types`` =
             RETURN 5
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5, r)
 
@@ -53,7 +53,7 @@ module ``Primtive Types`` =
             RETURN 5L
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5L, r)
 
@@ -63,7 +63,7 @@ module ``Primtive Types`` =
             RETURN 5.5
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal(5.5, r)
 
@@ -73,7 +73,7 @@ module ``Primtive Types`` =
             RETURN "EMU"
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal("EMU", r)
 
@@ -82,7 +82,7 @@ module ``Primtive Types`` =
             RETURN (true, false, 5, 7L, 5.5, "EMU")
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
 
@@ -146,7 +146,7 @@ module ``Complex Queries with Record Types`` =
             RETURN (m.title, m.released)
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun (s, i) -> 
             (Assert.IsType<string> s) |> ignore
@@ -163,7 +163,7 @@ module ``Complex Queries with Record Types`` =
             RETURN (m, p, a, d)
         }
         |> Cypher.run driver
-        |> CypherResult.results
+        |> QueryResult.results
         |> Seq.head
         |> fun (m, p, a, d) -> 
             Assert.IsType<Movie> m |> ignore

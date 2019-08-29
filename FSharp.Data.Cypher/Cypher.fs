@@ -25,7 +25,7 @@ module ClauseNames =
     let [<Literal>] ORDER_BY = "ORDER_BY"
     let [<Literal>] SKIP = "SKIP"
     let [<Literal>] LIMIT = "LIMIT"
-    // TO DO - here for write/read check completenets
+    // TODO - here for write/read check completeness
     let [<Literal>] DELETE = "DELETE"
     let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
     let [<Literal>] REMOVE = "REMOVE"
@@ -47,7 +47,7 @@ type Clause =
     | DETACH_DELETE
     | REMOVE
     | FOREACH
-    override this.ToString() = 
+    override this.ToString() =
         match this with
         | MATCH -> ClauseNames.MATCH
         | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
@@ -77,17 +77,17 @@ module Clause =
 
     let isWrite (clause : Clause) = clause.IsWrite
 
-type CypherResult<'T>(results : 'T [], summary : IResultSummary) =
+type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
     member __.Results = results
     member __.Summary = summary
 
-module CypherResult =
+module QueryResult =
 
-    let results (cr : CypherResult<'T>) = cr.Results
+    let results (cr : QueryResult<'T>) = cr.Results
 
-    let summary (cr : CypherResult<'T>) = cr.Summary
+    let summary (cr : QueryResult<'T>) = cr.Summary
 
-type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
+type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
     member __.Results = results
     member __.Summary = summary
     member __.Session = session
@@ -96,7 +96,7 @@ type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, session : 
         async {
             do! this.Transaction.CommitAsync() |> Async.AwaitTask
             this.Session.Dispose()
-            return CypherResult(this.Results, this.Summary)
+            return QueryResult(this.Results, this.Summary)
         }
     member this.Commit() = this.AsyncCommit() |> Async.RunSynchronously
     member this.AsyncRollback() =
@@ -107,33 +107,38 @@ type CypherTransaction<'T>(results : 'T [], summary : IResultSummary, session : 
         }
     member this.Rollback() = this.AsyncRollback() |> Async.RunSynchronously
 
-module CypherTransaction =
+module TransactionResult =
 
-    let results (cr : CypherTransaction<'T>) = cr.Results
+    let results (cr : TransactionResult<'T>) = cr.Results
     
-    let summary (cr : CypherTransaction<'T>) = cr.Summary
+    let summary (cr : TransactionResult<'T>) = cr.Summary
     
-    let transaction (cr : CypherTransaction<'T>) = cr.Transaction
+    let transaction (cr : TransactionResult<'T>) = cr.Transaction
 
-    let commit (cr : CypherTransaction<'T>) = cr.Commit()
+    let commit (cr : TransactionResult<'T>) = cr.Commit()
     
-    let rollback (cr : CypherTransaction<'T>) = cr.Rollback()
+    let rollback (cr : TransactionResult<'T>) = cr.Rollback()
 
-    let asyncCommit (cr : CypherTransaction<'T>) = cr.AsyncCommit()
+    let asyncCommit (cr : TransactionResult<'T>) = cr.AsyncCommit()
     
-    let asyncRollback (cr : CypherTransaction<'T>) = cr.AsyncRollback()
+    let asyncRollback (cr : TransactionResult<'T>) = cr.AsyncRollback()
 
-type QueryStep(clause : Clause, statement : string, ?parameters : (string * obj option) list ) =
-    member __.Clause = clause
-    member __.Statement = statement
-    member __.Parameters = parameters
-    member __.CompleteStep = string clause + " " + statement
+type CypherStep =
+    | NonParameterized of Clause : Clause * Statement : string
+    | Parameterized of Clause : Clause * Statement : Choice<string,string -> string> list * Parameters : (string * obj option) list
+    member this.Clause =
+        match this with
+        | NonParameterized (c, _) -> c
+        | Parameterized (c, _, _) -> c
+    //member this.Statement = statement
+    //member this.Parameters = parameters
+    //member this.CompleteStep = string clause + " " + statement
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
     static member FixStringParameter (typ : Type, o : obj) = 
-        if typ = typeof<string> then o :?> string |> QueryStep.FixStringParameter 
+        if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter 
         else string o
 
-type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
+type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let MakeQuery sep =
         querySteps
         |> List.map (fun x -> x.CompleteStep)
@@ -156,7 +161,7 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
                 match o with
                 | Some o ->
                     match o with
-                    | :? string as s -> QueryStep.FixStringParameter s
+                    | :? string as s -> CypherStep.FixStringParameter s
                     | :? Generic.List<obj> as xs ->
                         xs
                         |> Seq.map string
@@ -164,7 +169,7 @@ type Cypher<'T>(querySteps : QueryStep list, continuation : Generic.IReadOnlyDic
                         |> sprintf "[ %s ]"
                     | :? Generic.Dictionary<string, obj> as d ->
                         d 
-                        |> Seq.map (fun kv -> kv.Key + " : " + QueryStep.FixStringParameter(kv.Value.GetType(), kv.Value))
+                        |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter(kv.Value.GetType(), kv.Value))
                         |> String.concat ", "
                         |> sprintf "{ %s }"
                     | _ -> string o
@@ -194,7 +199,7 @@ module Cypher =
                 sr 
                 |> Seq.toArray 
                 |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
-            CypherResult(results, sr.Summary)
+            QueryResult(results, sr.Summary)
         finally
             session.CloseAsync()
             |> Async.AwaitTask
@@ -216,7 +221,7 @@ module Cypher =
     module Explicit =
     
         let private runTransaction (cypher : Cypher<'T>) (driver : IDriver) (map : 'T -> 'U) =
-            let session = if cypher.IsWrite then driver.Session AccessMode.Write else driver.Session AccessMode.Read
+            use session = if cypher.IsWrite then driver.Session AccessMode.Write else driver.Session AccessMode.Read
             try
                 let transaction = session.BeginTransaction()
                 let sr = transaction.Run(cypher.Query, makeParameters cypher)
@@ -224,7 +229,7 @@ module Cypher =
                     sr 
                     |> Seq.toArray 
                     |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
-                CypherTransaction(results, sr.Summary, session, transaction)
+                TransactionResult(results, sr.Summary, session, transaction)
             with e ->
                 session.CloseAsync()
                 |> Async.AwaitTask
@@ -322,7 +327,7 @@ module private ClauseHelpers =
 
     let extractStatement (exp : Expr) =
         match exp with
-        | Value (o, typ) -> QueryStep.FixStringParameter(typ, o)
+        | Value (o, typ) -> CypherStep.FixStringParameter(typ, o)
         | Var v -> v.Name // string needs to be escaped
         | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
         // When variable is outside the builder
@@ -338,13 +343,14 @@ module private WhereAndSetStatement =
     let private chars = "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz".ToCharArray()
 
     // TODO : Make this a bit smarter. Should generate a key based of the inputs, so its testable // repeatable?
+    // This could also have implications around query caching?
+    // Parameters may consist of letters and numbers, and any combination of these, but cannot start with a number or a currency symbol.
     let makeKey len = String(Array.init len (fun _ -> chars.[rnd.Next(chars.Length - 1)]))
 
     let make (e : Expr) =
         let mutable parameters = List.Empty
        
-        let addParam o =
-            let key = makeKey 20
+        let addParam o (key : string) =
             let o = Serialization.fixTypes (o.GetType()) o
             parameters <- (key, o) :: parameters
             "$" + key
@@ -361,7 +367,7 @@ module private WhereAndSetStatement =
                         |> Serialization.serialize
                         |> box
                     
-                    v.Name + " = " + addParam o
+                    [ Choice1Of2 v.Name ; Choice1Of2 "=" ; Choice2Of2 (addParam o) ]
 
                 | PropertyGet (None, pi, []), Var v -> 
                     let o = 
@@ -370,28 +376,29 @@ module private WhereAndSetStatement =
                         |> Serialization.serialize
                         |> box
 
-                    addParam o + " = " + v.Name
+                    [ Choice2Of2 (addParam o) ; Choice1Of2 "=" ; Choice1Of2 v.Name ]
 
-                | _ -> builder left + " = " + builder right
-            | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left + " < " + builder right
-            | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left + " <= " + builder right
-            | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> builder left + " > " + builder right
-            | SpecificCall <@@ (>=) @@> (_, _, [ left; right ]) -> builder left + " >= " + builder right
-            | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> builder left + " <> " + builder right
-            | IfThenElse (left, right, Value (o, t)) -> builder left + " AND " + builder right // Value(false) for AND
-            | IfThenElse (left, Value (o, t), right) -> builder left + " OR " + builder right // Value(true) for OR
+                | _ -> builder left @  [ Choice1Of2 "=" ] @ builder right
+            | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<" ] @ builder right
+            | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<=" ] @ builder right
+            | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 ">" ] @ builder right
+            | SpecificCall <@@ (>=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 ">=" ] @ builder right
+            | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<>" ] @ builder right
+            | IfThenElse (left, right, Value (o, t)) -> builder left @ [ Choice1Of2 "AND" ] @ builder right // Value(false) for AND
+            | IfThenElse (left, Value (o, t), right) -> builder left @ [ Choice1Of2 "OR" ] @ builder right // Value(true) for OR
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
-                List.map builder exprs
-                |> String.concat ", "
+                exprs 
+                |> List.collect (fun e -> builder e @ [ Choice1Of2 ", " ]) 
+                
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> QuotationEvaluator.EvaluateUntyped e |> addParam
-            | NewArray (_, _) -> QuotationEvaluator.EvaluateUntyped e |> addParam
-            | ValueWithName (o, t, s) -> "MAKE ME NAME" + s
-            | Value (o, t) -> addParam o // Also matches ValueWithName
-            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e + "." + pi.Name // Deeper than single "." used for options .Value
-            | PropertyGet (Some e, pi, _) -> builder e + "." + pi.Name
-            | PropertyGet (None, pi, _) -> pi.Name
-            | Var v -> v.Name
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped e |> addParam |> Choice2Of2 ]
+            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addParam |> Choice2Of2 ]
+            | ValueWithName (o, t, s) -> invalidOp "WHERE/SET: Value with name matched - not yet written!"  //"MAKE ME NAME" + s TODO
+            | Value (o, t) -> [ Choice2Of2 (addParam o) ] // Also matches ValueWithName
+            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
+            | PropertyGet (Some e, pi, _) -> builder e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
+            | PropertyGet (None, pi, _) -> [ Choice1Of2 pi.Name ]
+            | Var v -> [ Choice1Of2 v.Name ]
             | Let (_, _, e2) -> builder e2
             | Lambda (_, e) -> builder e
             | _ -> 
@@ -413,7 +420,7 @@ module private ReturnClause =
     let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
-            let key = QueryStep.FixStringParameter(typ, o)
+            let key = CypherStep.FixStringParameter(typ, o)
             let o = Deserialization.fixTypes key typ di.[key]
             Expr.Value(o, typ)
 
@@ -471,7 +478,7 @@ module private ReturnClause =
                 let result di =
                     continuation di
                     //|> Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation
-                    |> Evaluator.QuotationEvaluator.EvaluateUntyped :?> 'T
+                    |> QuotationEvaluator.EvaluateUntyped :?> 'T
                         
                 statement, result
         | _ -> 
@@ -577,7 +584,7 @@ module CypherBuilder =
             let buildQry (e : Expr<Query<'T>>) =
                 //let mutable count = 0
                 let mutable returnStatement : ReturnContination<'T> = Empty
-                let rec queryBuilder (state : QueryStep list) (e : Expr) =
+                let rec queryBuilder (state : CypherStep list) (e : Expr) =
                     //count <- count + 1
                     match e with
                     | SpecificCall <@ cypher.Yield @> _ -> state
@@ -586,67 +593,67 @@ module CypherBuilder =
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MATCH stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(MATCH, statement) :: state
+                        let newState = NonParameterized(MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     // TODO: This can RETURN some nulls.. need to look further into that
                     | SpecificCall <@ cypher.OPTIONAL_MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.OPTIONAL_MATCH stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(OPTIONAL_MATCH, statement) :: state
+                        let newState = NonParameterized(OPTIONAL_MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.CREATE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.CREATE stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(CREATE, statement) :: state
+                        let newState = NonParameterized(CREATE, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.MERGE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MERGE stepAbove thisStep  
                         let statement = MatchClause.make thisStep
-                        let newState = QueryStep(MERGE, statement) :: state
+                        let newState = NonParameterized(MERGE, statement) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.WHERE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.WHERE stepAbove thisStep  
                         let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = QueryStep(WHERE, statement, prms) :: state
+                        let newState = Parameterized(WHERE, statement, prms) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.SET @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.SET stepAbove thisStep  
                         let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = QueryStep(SET, statement, prms) :: state
+                        let newState = Parameterized(SET, statement, prms) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.RETURN stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = QueryStep(RETURN, statement) :: state
+                        let newState = NonParameterized(RETURN, statement) :: state
                         returnStatement <- returnStatement.Update continuation
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN_DISTINCT @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.RETURN_DISTINCT stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = QueryStep(RETURN_DISTINCT, statement) :: state
+                        let newState = NonParameterized(RETURN_DISTINCT, statement) :: state
                         returnStatement <- returnStatement.Update continuation
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.ORDER_BY @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(ORDER_BY, statement) :: state
+                        let newState = NonParameterized(ORDER_BY, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.SKIP @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(SKIP, statement) :: state
+                        let newState = NonParameterized(SKIP, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.LIMIT @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = BasicClause.make thisStep
-                        let newState = QueryStep(LIMIT, statement) :: state
+                        let newState = NonParameterized(LIMIT, statement) :: state
                         queryBuilder newState stepAbove
 
                     | _ -> 
