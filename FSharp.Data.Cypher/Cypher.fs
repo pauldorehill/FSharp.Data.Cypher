@@ -125,11 +125,11 @@ module TransactionResult =
 
 type CypherStep =
     | NonParameterized of Clause : Clause * Statement : string
-    | Parameterized of Clause : Clause * Statement : Choice<string,string -> string> list * Parameters : (string * obj option) list
+    | Parameterized of Clause : Clause * Statement : Choice<string,string -> (string * obj option)> list
     member this.Clause =
         match this with
         | NonParameterized (c, _) -> c
-        | Parameterized (c, _, _) -> c
+        | Parameterized (c, _) -> c
     //member this.Statement = statement
     //member this.Parameters = parameters
     //member this.CompleteStep = string clause + " " + statement
@@ -137,24 +137,39 @@ type CypherStep =
     static member FixStringParameter (typ : Type, o : obj) = 
         if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter 
         else string o
-
+        
 type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
-    let MakeQuery sep =
+    let mutable prms = List.Empty
+    let Paramkey = "$"
+    let BuildQuery (sep : string) =
         querySteps
-        |> List.map (fun x -> x.CompleteStep)
+        |> List.mapi (fun i x -> 
+            match x with
+            | NonParameterized (c, s) -> string c + " " + s
+            | Parameterized (c, xs) ->
+                let mutable pCount = 0
+                let q =
+                    xs
+                    |> List.map (fun x ->
+                        match x with
+                        | Choice1Of2 s -> s
+                        | Choice2Of2 f -> 
+                            let s = "s" + string i + "p" + string pCount
+                            pCount <- pCount + 1
+                            prms <- f s :: prms
+                            Paramkey + s)
+                    |> String.concat ""
+                
+                string c + " " + q)
         |> String.concat sep
 
     member __.QuerySteps = querySteps
     member __.Continuation = continuation
-    member __.Parameters =
-        querySteps
-        |> List.choose (fun x -> x.Parameters)
-        |> List.concat
-
-    member __.Query = MakeQuery " "
-    member __.QueryMultiline = MakeQuery Environment.NewLine
+    member __.Parameters = prms
+    member __.Query = BuildQuery " "
+    member __.QueryMultiline =  BuildQuery Environment.NewLine
     member __.IsWrite = querySteps |> List.exists (fun x -> x.Clause.IsWrite)
-    member this.QueryNonParameterized = // TODO : should capture the raw statement so no need to do this. Also match on other types e.g Generic.List
+    member this.QueryNonParameterized = // TODO : should build this at the same time as the paramterized query
         (this.Query, this.Parameters)
         ||> List.fold (fun state (k, o) -> 
             let v =
@@ -175,7 +190,7 @@ type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDi
                     | _ -> string o
                 | None -> "null"
 
-            state.Replace("$" + k, v))
+            state.Replace(Paramkey + k, v))
 
 module Cypher =
 
@@ -339,22 +354,12 @@ module private ClauseHelpers =
 
 module private WhereAndSetStatement =
 
-    let private rnd = Random()
-    let private chars = "ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvxyz".ToCharArray()
-
-    // TODO : Make this a bit smarter. Should generate a key based of the inputs, so its testable // repeatable?
-    // This could also have implications around query caching?
-    // Parameters may consist of letters and numbers, and any combination of these, but cannot start with a number or a currency symbol.
-    let makeKey len = String(Array.init len (fun _ -> chars.[rnd.Next(chars.Length - 1)]))
-
     let make (e : Expr) =
-        let mutable parameters = List.Empty
        
-        let addParam o (key : string) =
-            let o = Serialization.fixTypes (o.GetType()) o
-            parameters <- (key, o) :: parameters
-            "$" + key
-                
+        let addParam o =
+            fun (key : string) -> key, Serialization.fixTypes (o.GetType()) o
+            |> Choice2Of2
+
         let rec builder (e : Expr) =
             //printfn "%A" e
             match e with
@@ -367,7 +372,7 @@ module private WhereAndSetStatement =
                         |> Serialization.serialize
                         |> box
                     
-                    [ Choice1Of2 v.Name ; Choice1Of2 "=" ; Choice2Of2 (addParam o) ]
+                    [ Choice1Of2 v.Name ; Choice1Of2 " = " ; addParam o ]
 
                 | PropertyGet (None, pi, []), Var v -> 
                     let o = 
@@ -376,25 +381,27 @@ module private WhereAndSetStatement =
                         |> Serialization.serialize
                         |> box
 
-                    [ Choice2Of2 (addParam o) ; Choice1Of2 "=" ; Choice1Of2 v.Name ]
+                    [ addParam o ; Choice1Of2 " = " ; Choice1Of2 v.Name ]
 
-                | _ -> builder left @  [ Choice1Of2 "=" ] @ builder right
-            | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<" ] @ builder right
-            | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<=" ] @ builder right
-            | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 ">" ] @ builder right
-            | SpecificCall <@@ (>=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 ">=" ] @ builder right
-            | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 "<>" ] @ builder right
-            | IfThenElse (left, right, Value (o, t)) -> builder left @ [ Choice1Of2 "AND" ] @ builder right // Value(false) for AND
-            | IfThenElse (left, Value (o, t), right) -> builder left @ [ Choice1Of2 "OR" ] @ builder right // Value(true) for OR
+                | _ -> builder left @  [ Choice1Of2 " = " ] @ builder right
+            | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " < " ] @ builder right
+            | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " <= " ] @ builder right
+            | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " > " ] @ builder right
+            | SpecificCall <@@ (>=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " >= " ] @ builder right
+            | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " <> " ] @ builder right
+            | IfThenElse (left, right, Value (o, t)) -> builder left @ [ Choice1Of2 " AND " ] @ builder right // Value(false) for AND
+            | IfThenElse (left, Value (o, t), right) -> builder left @ [ Choice1Of2 " OR " ] @ builder right // Value(true) for OR
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
+                let len = List.length exprs
                 exprs 
-                |> List.collect (fun e -> builder e @ [ Choice1Of2 ", " ]) 
+                |> List.mapi (fun i e -> if i = len - 1 then builder e else builder e @ [ Choice1Of2 ", " ])
+                |> List.concat
                 
             | NewUnionCase (ui, [singleCase]) -> builder singleCase
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped e |> addParam |> Choice2Of2 ]
-            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addParam |> Choice2Of2 ]
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped e |> addParam ]
+            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addParam ] 
             | ValueWithName (o, t, s) -> invalidOp "WHERE/SET: Value with name matched - not yet written!"  //"MAKE ME NAME" + s TODO
-            | Value (o, t) -> [ Choice2Of2 (addParam o) ] // Also matches ValueWithName
+            | Value (o, t) -> [ addParam o ] // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> builder e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> builder e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
             | PropertyGet (None, pi, _) -> [ Choice1Of2 pi.Name ]
@@ -405,7 +412,7 @@ module private WhereAndSetStatement =
                 sprintf "Un matched in WHERE/SET statement: %A" e
                 |> invalidOp
     
-        builder e, parameters
+        builder e
 
 module private ReturnClause =
 
@@ -617,14 +624,14 @@ module CypherBuilder =
                     
                     | SpecificCall <@ cypher.WHERE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.WHERE stepAbove thisStep  
-                        let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = Parameterized(WHERE, statement, prms) :: state
+                        let statement = WhereAndSetStatement.make thisStep
+                        let newState = Parameterized(WHERE, statement) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.SET @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.SET stepAbove thisStep  
-                        let (statement, prms) = WhereAndSetStatement.make thisStep
-                        let newState = Parameterized(SET, statement, prms) :: state
+                        let statement = WhereAndSetStatement.make thisStep
+                        let newState = Parameterized(SET, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN @> (exp, types, [ stepAbove; thisStep ]) ->
