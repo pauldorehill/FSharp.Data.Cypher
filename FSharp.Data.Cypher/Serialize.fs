@@ -219,20 +219,16 @@ module Serialization =
     let makeIEntity (fsNode : #IFSEntity) = 
         { new IEntity with 
             member __.Id = invalidOp "Fake Entity."
-            member this.get_Item (key : string) : obj = this.Properties.Item key
-            member __.Properties = serialize fsNode :> Generic.IReadOnlyDictionary<string,obj> }
+            member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
+            member __.Properties = invalidOp "Fake Entity." }
     
     let makeINode (fsNode : #IFSNode) = 
         { new INode with 
-            member __.Labels = 
-                fsNode.Labels
-                |> Option.defaultValue []
-                |> List.map string
-                :> Generic.IReadOnlyList<string>
+            member __.Labels = invalidOp "Fake Node - no labels"
         interface IEntity with
             member __.Id = invalidOp "Fake Node - no id."
-            member this.get_Item (key : string) : obj = this.Properties.Item key
-            member __.Properties = serialize fsNode :> Generic.IReadOnlyDictionary<string,obj>
+            member this.get_Item (key : string) : obj = invalidOp "Fake Node"
+            member __.Properties = invalidOp "Fake Node"
         interface IEquatable<INode> with
             member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
             
@@ -240,7 +236,7 @@ module Serialization =
         { new IRelationship with 
             member __.StartNodeId = invalidOp "Fake relationsip - no start node"
             member __.EndNodeId = invalidOp "Fake relationsip - no end node"
-            member __.Type = fsRel.Label |> string
+            member __.Type = invalidOp "Fake relationship - no type name"
         interface IEntity with
             member __.Id = invalidOp "Fake Node - no id."
             member this.get_Item (key : string) : obj = this.Properties.Item key

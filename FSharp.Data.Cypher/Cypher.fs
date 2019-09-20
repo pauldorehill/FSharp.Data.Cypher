@@ -275,53 +275,108 @@ module private MatchClause =
     let [<Literal>] private IFSNode = "IFSNode"
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
-    let makeLabels name (o : obj)  =
-        let typ = o.GetType()
-        if typ = typeof<IFSNode> || Deserialization.hasInterface typ IFSNode
-        then 
-            (o :?> IFSNode).Labels
-            |> Option.map (fun xs ->
-                xs
-                |> List.map Label.make
-                |> String.concat "")
-            |> Option.defaultValue ""
-            |> sprintf "(%s%s)" name
-
-        elif typ = typeof<IFSRelationship> || Deserialization.hasInterface typ IFSRelationship
-        then
-            (o :?> IFSRelationship).Label
-            |> Label.make
-            |> sprintf "[%s%s]" name
-        else 
-            typ.Name
-            |> sprintf "Tried to make labels, but not a %s or %s: %s" IFSNode IFSRelationship
-            |> invalidOp 
-
     let buildAscii expr =
+
+        let makeNodeLabel nodeLabel =
+            match nodeLabel with
+            | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped nodeLabel :?> NodeLabel |> string 
+            | NewObject (ci, [ Value (o, t) ]) when ci.DeclaringType = typeof<NodeLabel> -> NodeLabel (string o) |> string
+            | NewUnionCase (ui, _) when ui.Name = "Cons" ->
+                QuotationEvaluator.EvaluateUntyped nodeLabel
+                :?> NodeLabel list
+                |> List.map string
+                |> String.concat ""
+            | _ -> invalidOp "Could not build node label(s)"
+            |> string
+        
+        let makeRelLabel relLabel =
+            let rec inner exp =
+                match exp with
+                | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped relLabel :?> RelLabel |> string 
+                | NewObject (ci, [ Value (o, t) ]) when ci.DeclaringType = typeof<RelLabel> -> RelLabel (string o) |> string
+                | SpecificCall <@ (/) @> (_, _, xs) -> 
+                    List.map inner xs 
+                    |> String.concat ""
+                | _ -> invalidOp "Could not build relationship label(s)"
+                |> string
+
+            inner relLabel
+
+        let makeNodeWithProperties e1 e2 =
+            let originalNode = QuotationEvaluator.EvaluateUntyped e1
+            let nodeWithProps = QuotationEvaluator.EvaluateUntyped e2 
+
+            if originalNode.GetType() <> nodeWithProps.GetType() then invalidOp "Can't compare different types for Node properties"
+            else
+                let pNames =
+                    originalNode.GetType()
+                    |> FSharp.Reflection.FSharpType.GetRecordFields
+                    |> Array.map (fun x -> x.Name)
+
+                let oFields = FSharp.Reflection.FSharpValue.GetRecordFields originalNode
+                let nFields = FSharp.Reflection.FSharpValue.GetRecordFields nodeWithProps
+
+                pNames
+                |> Array.indexed
+                |> Array.choose (fun (i, pName) -> 
+                    let o = oFields.[i]
+                    let n = nFields.[i]
+                    if  o = n then None 
+                    // TODO: Full Type checks on properties
+                    else 
+                        if n.GetType() = typeof<string> then sprintf "'%s'" (string n) else string n
+                        |> sprintf "%s : %s" pName
+                        |> Some)
+                |> String.concat ", "
+                |> sprintf "{ %s }"
+
         let rec inner expr =
-            //printfn "%A" expr
+            //if pr then printfn "%A" expr
             match expr with
+            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> "()"
+            
+            | NewObject (ci, [ Coerce (PropertyGet (_, node, _), t) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
+
+            | NewObject (ci, [ Coerce (PropertyGet (_, rel, _), t) ]) when ci.DeclaringType = typeof<Rel> -> sprintf "[%s]" rel.Name
+            
+            | NewObject (ci, [ Coerce (eNode, t); e2 ]) when ci.DeclaringType = typeof<Node> -> // Need e1 to evaluate so can do a comparison
+                match eNode with 
+                | PropertyGet (_, node, _) ->
+                    let ctr = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
+                    match ctr with
+                    | xs when xs = [| typeof<IFSNode>; typeof<NodeLabel> |] || xs = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> sprintf "(%s%s)" node.Name (makeNodeLabel e2)
+                    | xs when xs = [| typeof<IFSNode>; typeof<IFSNode> |] -> sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode e2)
+                    | _ -> invalidOp "invalid constructor found"
+                | _ -> invalidOp "invalid constructor found"
+
+            | NewObject (ci, [ Coerce (eRel, t); e2 ]) when ci.DeclaringType = typeof<Rel> -> 
+                match eRel with 
+                | PropertyGet (_, rel, _) -> sprintf "[%s%s]" rel.Name (makeRelLabel e2) // Need e1 to evaluate so can do a comparison
+                | _ -> invalidOp "invalid rel constructor found"
+
+            | NewObject (ci, [ Coerce (eNode1, t); eLabels; eNode2]) when ci.DeclaringType = typeof<Node> -> 
+                match eNode1 with 
+                | PropertyGet (_, node, _) ->
+                    sprintf "(%s%s %s)" node.Name (makeNodeLabel eLabels) (makeNodeWithProperties eNode1 eNode2)
+                | _ -> invalidOp "invalid constructor found"
+
             | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "--" + inner rightSide
             | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "-->" + inner rightSide
             | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "<--" + inner rightSide
-            | SpecificCall <@ (-|) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "-" + inner rightSide
-            | SpecificCall <@ (|->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "->" + inner rightSide
-            | SpecificCall <@ (|-) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "-" + inner rightSide
-            | SpecificCall <@ (<-|) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "<-" + inner rightSide
             // Coarce can let you get the instance of the type
             // Wrapped like this to prevent case when its AsciiStep triggering makeLabels
-            | Coerce (PropertyGet (_, pi, _), typ) -> 
-                QuotationEvaluator.EvaluateUntyped expr
-                |> makeLabels pi.Name
-            | Coerce (ex, _) -> inner ex
+            | Coerce (exp, typ) when typ = typeof<IGraph> -> inner exp
+            //    //QuotationEvaluator.EvaluateUntyped expr
+            //    //|> makeLabels pi.Name
+            ////| v _) -> inner ex
             | Let (_, _, e2) -> inner e2
             | TupleGet (exp, _) -> inner exp
-            | Var v -> 
-                Deserialization.createNullRecordOrClass v.Type
-                |> makeLabels v.Name 
-            | PropertyGet (_, pi, _) -> 
-                QuotationEvaluator.EvaluateUntyped expr
-                |> makeLabels pi.Name
+            //| Var v -> "Var"
+                //Deserialization.createNullRecordOrClass v.Type
+                //|> makeLabels v.Name 
+            //| PropertyGet (_, pi, _) -> "(" + pi.Name + ")"
+                //QuotationEvaluator.EvaluateUntyped expr
+                //|> makeLabels pi.Name
             | _ -> 
                 expr
                 |> sprintf "MATCH. Unable to build ascii statement: %A"
