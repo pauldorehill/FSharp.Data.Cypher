@@ -336,6 +336,7 @@ module private MatchClause =
             | _ -> invalidOp "Could not build node label(s)"
             |> string
 
+        // TODO: This needs some serious attention
         let makeNodeWithProperties e1 e2 =
             let originalNode = QuotationEvaluator.EvaluateUntyped e1
             let nodeWithProps = QuotationEvaluator.EvaluateUntyped e2 
@@ -387,6 +388,7 @@ module private MatchClause =
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
                 |> Some
+
             | NewObject (ci, [ param1; param2; param3 ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci  with
                 | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] 
@@ -394,8 +396,8 @@ module private MatchClause =
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
                 |> Some
-            | _ -> None
 
+            | _ -> None
 
     let getJoinSymbol (onNodes : string) onRel left right =
         match left, right with
@@ -411,9 +413,7 @@ module private MatchClause =
             | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "-->" "->" leftSide rightSide) + inner rightSide
             | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "<--" "<-" leftSide rightSide) + inner rightSide
             | Coerce (exp, typ) when typ = typeof<IFSEntity> -> inner exp
-            | Let (v, e1, e2) -> 
-                if not(varDic.ContainsKey v.Name) then varDic.Add(v.Name, e1) // Add the var expresssion for later evaluation
-                inner e2
+            | Let (v, e1, e2) -> inner e2
             | TupleGet (exp, _) -> inner exp
             | Lambda (_, exp) -> inner exp
             | _ -> 
@@ -603,6 +603,7 @@ module private BasicClause =
 
 [<AutoOpen>]
 module CypherBuilder =
+
     // Initial help came from this great article by Thomas Petricek
     // http://tomasp.net/blog/2015/query-translation/
     // Other helpful articles
@@ -677,30 +678,44 @@ module CypherBuilder =
         member __.Quote(query : Expr<Query<'T>>) = NA
 
         member cypher.Run(e : Expr<Query<'T>>) = 
-
-            // TODO: should probably pass these down in the state?
-            let varDic = Generic.Dictionary<string,Expr>()
+            // TODO: This is a bit rough and ready
+            let varDic =
+                let mutable varExp = None
+                let varDic = Generic.Dictionary<string,Expr>()
+                let rec inner e =
+                    match e with
+                    | SpecificCall <@ cypher.Yield @> _ -> ()
+                    | SpecificCall <@ cypher.For @> (_, _, [ varValue; yieldEnd ]) ->
+                        varExp <- Some varValue
+                        inner yieldEnd
+                    | Let (v, e1, e2) -> 
+                        if not(varDic.ContainsKey v.Name) then
+                            varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
+                            varExp <- None
+                        inner e2
+                    | ShapeCombination (_, xs) -> List.iter inner xs
+                    | ShapeLambda (_, e) -> inner e
+                    | ShapeVar _ -> ()
+                        //printfn "Shape %A" e
+                        //if varPropGet.IsSome then varDic.Add(v.Name, varPropGet.Value)
+                        //varPropGet <- None
+                inner e
+                varDic
+            
+            // TODO: should probably pass these down in the state
             let mutable returnStatement : ReturnContination<'T> = Empty
-            let mutable varPropGet = None
 
             let buildQry (e : Expr<Query<'T>>) =
                 let rec queryBuilder (state : CypherStep list) (e : Expr) =
                     match e with
                     | SpecificCall <@ cypher.Yield @> _ -> state
-                    
-                    | SpecificCall <@ cypher.For @> (_, _, [ pGet; yieldEnd ]) ->
-                        varPropGet <- Some pGet
-                        queryBuilder state yieldEnd
-                    
-                    | Let (v, e1, e2) -> 
-                        varDic.Add(v.Name, if varPropGet.IsSome then varPropGet.Value else e1) // Add the expresssion for later evaluation
-                        varPropGet <- None
-                        queryBuilder state e2
-                    
+                    | SpecificCall <@ cypher.For @> (_, _, _) -> state
+                    | Let (v, e1, e2) -> queryBuilder state e2
                     | Lambda (_, exp) -> queryBuilder state exp
                     
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         let statement = MatchClause.make varDic thisStep
+                        queryBuilder state stepAbove |> ignore
                         let newState = NonParameterized(MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
@@ -767,10 +782,7 @@ module CypherBuilder =
                         let newState = NonParameterized(LIMIT, statement) :: state
                         queryBuilder newState stepAbove
 
-                    | _ -> 
-                        e
-                        |> sprintf "Un matched method when building Query: %A"
-                        |> invalidOp 
+                    | _ -> sprintf "Un matched method when building Query: %A" e |> invalidOp 
 
                 queryBuilder [] e, returnStatement.Value
             
