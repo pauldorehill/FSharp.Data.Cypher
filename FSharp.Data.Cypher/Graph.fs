@@ -1,6 +1,6 @@
 ﻿namespace FSharp.Data.Cypher
 
-type IGraph = interface end
+type IFSEntity = interface end
 
 /// Marker interface for a type that is a Node
 type IFSNode = interface end
@@ -25,8 +25,9 @@ type RelLabel(label : string) =
 /// Match a Relationship
 [<NoComparison; NoEquality>]
 type Rel(relationship : IFSRelationship) =
-    interface IGraph
+    interface IFSEntity
 
+    new (label : RelLabel) = Rel { new IFSRelationship }
     //new (pathHops : int list) = Rel { new IFSRelationship }
 
     /// Match a Relationship with the label and bind it to the variable name. The (||) operator can be used to specify multiple relationships
@@ -42,7 +43,7 @@ type Rel(relationship : IFSRelationship) =
 /// Match a Node
 [<NoComparison; NoEquality>]
 type Node() =
-    interface IGraph
+    interface IFSEntity
     /// Match a Node and bind it to the variable name
     new (node : IFSNode) = Node()
 
@@ -77,8 +78,8 @@ type Node() =
 [<AutoOpen>]
 module Ascii =
 
-    let inline (--) (graphEntity : IGraph) (graphEntity2 : IGraph) = graphEntity2
+    let inline (--) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
     
-    let inline (-->) (graphEntity : IGraph) (graphEntity2 : IGraph) = graphEntity2
+    let inline (-->) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
     
-    let inline (<--) (graphEntity : IGraph) (graphEntity2 : IGraph) = graphEntity
+    let inline (<--) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity

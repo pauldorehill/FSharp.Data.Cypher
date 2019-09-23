@@ -12,6 +12,8 @@ open FSharp.Quotations.Evaluator
 open Neo4j.Driver.V1
 open FSharp.Data.Cypher
 
+type VarDic = Generic.Dictionary<string,Expr>
+
 module ClauseNames =
     
     let [<Literal>] MATCH = "MATCH"
@@ -275,7 +277,57 @@ module private MatchClause =
     let [<Literal>] private IFSNode = "IFSNode"
     let [<Literal>] private IFSRelationship = "IFSRelationship"
 
-    let buildAscii expr =
+    module Rel =
+        
+        let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
+
+        let makeIFSRel (expr : Expr) =
+            match expr with
+            | Coerce (PropertyGet (_, rel, _), _) -> rel.Name
+            | Coerce (Var rel, _) -> rel.Name
+            | _ -> 
+                sprintf "Could not build IFSRelationship from expression %A" expr
+                |> invalidOp
+
+        let makeRelLabel (varDic : VarDic) (expr : Expr) =
+            let rec inner (expr : Expr) =
+                match expr with
+                | Var rel -> QuotationEvaluator.EvaluateUntyped varDic.[rel.Name] :?> RelLabel |> string
+                | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
+                | PropertyGet (Some (Var v), pi, []) ->
+                    let t = FSharpValue.MakeRecord(v.Type, Array.zeroCreate (FSharpType.GetRecordFields v.Type).Length)
+                    pi.GetValue t :?> RelLabel |> string
+                | Value (obj, _) -> obj :?> RelLabel |> string
+                | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
+                | SpecificCall <@ (/) @> (_, _, xs) -> List.map inner xs |> String.concat "|"
+                | _ -> sprintf "Could not build RelLabel from expression %A" expr |> invalidOp
+                
+            inner expr
+
+        let (|Relationship|_|) (varDic : VarDic) (expr : Expr) =
+
+            let onError prms = sprintf "Unexpected Rel constructor: %A" prms |> invalidOp 
+
+            match expr with
+            | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Rel> -> 
+                match getCtrParamsTypes ci with
+                | prms when prms = [| typeof<IFSRelationship> |] -> makeIFSRel param
+                | prms when prms = [| typeof<RelLabel> |] -> makeRelLabel varDic param
+                | errorPrms -> onError errorPrms
+                |> sprintf "[%s]"
+                |> Some
+
+            | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Rel> ->
+                match getCtrParamsTypes ci with
+                | prms when prms = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> (makeIFSRel param1, makeRelLabel varDic param2)
+                | errorPrms -> onError errorPrms
+                ||> sprintf "[%s%s]"
+                |> Some
+
+            | _ -> None
+
+
+    let make (varDic : VarDic) expr =
 
         let makeNodeLabel nodeLabel =
             match nodeLabel with
@@ -288,19 +340,6 @@ module private MatchClause =
                 |> String.concat ""
             | _ -> invalidOp "Could not build node label(s)"
             |> string
-        
-        let makeRelLabel relLabel =
-            let rec inner exp =
-                match exp with
-                | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped relLabel :?> RelLabel |> string 
-                | NewObject (ci, [ Value (o, t) ]) when ci.DeclaringType = typeof<RelLabel> -> RelLabel (string o) |> string
-                | SpecificCall <@ (/) @> (_, _, xs) -> 
-                    List.map inner xs 
-                    |> String.concat ""
-                | _ -> invalidOp "Could not build relationship label(s)"
-                |> string
-
-            inner relLabel
 
         let makeNodeWithProperties e1 e2 =
             let originalNode = QuotationEvaluator.EvaluateUntyped e1
@@ -322,7 +361,7 @@ module private MatchClause =
                     let o = oFields.[i]
                     let n = nFields.[i]
                     if  o = n then None 
-                    // TODO: Full Type checks on properties
+                    // TODO: Combine into the full type checks on properties
                     else 
                         if n.GetType() = typeof<string> then sprintf "'%s'" (string n) else string n
                         |> sprintf "%s : %s" pName
@@ -330,67 +369,69 @@ module private MatchClause =
                 |> String.concat ", "
                 |> sprintf "{ %s }"
 
-        let rec inner expr =
-            //if pr then printfn "%A" expr
-            match expr with
-            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> "()"
-            
-            | NewObject (ci, [ Coerce (PropertyGet (_, node, _), t) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
+        let getJoinSymbol (onNodes : string) onRel left right =
+            match left, right with
+            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> onNodes
+            | _ -> onRel
 
-            | NewObject (ci, [ Coerce (PropertyGet (_, rel, _), t) ]) when ci.DeclaringType = typeof<Rel> -> sprintf "[%s]" rel.Name
+
+        // NewObject, the number of items in the list matches the no. parameters passed to the constructor
+        // Coarce can let you get the instance of the type when evaluated
+        // Var is for items inside the expression
+        // PropertyGet is for items outside the expression
+        let rec inner (expr : Expr) =
+            match expr with
+            | Rel.Relationship varDic str -> str
+
+            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> "()"
+            // inside comp, for .. in
+            | NewObject (ci, [ Coerce (Var node, _) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
             
-            | NewObject (ci, [ Coerce (eNode, t); e2 ]) when ci.DeclaringType = typeof<Node> -> // Need e1 to evaluate so can do a comparison
-                match eNode with 
-                | PropertyGet (_, node, _) ->
+            // Outside comp
+            | NewObject (ci, [ Coerce (PropertyGet (_, node, _), _) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
+            
+            | NewObject (ci, [ Coerce (eNode, _); e2 ]) when ci.DeclaringType = typeof<Node> -> // Need eNode to evaluate so can do a comparison
+                let hasProperties =
                     let ctr = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
                     match ctr with
-                    | xs when xs = [| typeof<IFSNode>; typeof<NodeLabel> |] || xs = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> sprintf "(%s%s)" node.Name (makeNodeLabel e2)
-                    | xs when xs = [| typeof<IFSNode>; typeof<IFSNode> |] -> sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode e2)
+                    | xs when xs = [| typeof<IFSNode>; typeof<NodeLabel> |] || xs = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> false
+                    | xs when xs = [| typeof<IFSNode>; typeof<IFSNode> |] -> true
                     | _ -> invalidOp "invalid constructor found"
-                | _ -> invalidOp "invalid constructor found"
-
-            | NewObject (ci, [ Coerce (eRel, t); e2 ]) when ci.DeclaringType = typeof<Rel> -> 
-                match eRel with 
-                | PropertyGet (_, rel, _) -> sprintf "[%s%s]" rel.Name (makeRelLabel e2) // Need e1 to evaluate so can do a comparison
-                | _ -> invalidOp "invalid rel constructor found"
+                match eNode with 
+                | PropertyGet (_, node, _) -> 
+                    if hasProperties 
+                    then sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode e2)
+                    else sprintf "(%s%s)" node.Name (makeNodeLabel e2)
+                | Var node -> 
+                    if hasProperties 
+                    then sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode varDic.[node.Name])
+                    else sprintf "(%s%s)" node.Name (makeNodeLabel e2)
+                | _ -> 
+                    printfn "%A" expr
+                    printfn "%A" eNode
+                    invalidOp "invalid node builder"
 
             | NewObject (ci, [ Coerce (eNode1, t); eLabels; eNode2]) when ci.DeclaringType = typeof<Node> -> 
                 match eNode1 with 
                 | PropertyGet (_, node, _) ->
                     sprintf "(%s%s %s)" node.Name (makeNodeLabel eLabels) (makeNodeWithProperties eNode1 eNode2)
                 | _ -> invalidOp "invalid constructor found"
-
-            | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "--" + inner rightSide
-            | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "-->" + inner rightSide
-            | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + "<--" + inner rightSide
-            // Coarce can let you get the instance of the type
-            // Wrapped like this to prevent case when its AsciiStep triggering makeLabels
-            | Coerce (exp, typ) when typ = typeof<IGraph> -> inner exp
-            //    //QuotationEvaluator.EvaluateUntyped expr
-            //    //|> makeLabels pi.Name
-            ////| v _) -> inner ex
-            | Let (_, _, e2) -> inner e2
+                
+            | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "--" "-" leftSide rightSide) + inner rightSide
+            | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "-->" "->" leftSide rightSide) + inner rightSide
+            | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "<--" "<-" leftSide rightSide) + inner rightSide
+            | Coerce (exp, typ) when typ = typeof<IFSEntity> -> inner exp
+            | Let (v, e1, e2) -> 
+                if not(varDic.ContainsKey v.Name) then varDic.Add(v.Name, e1) // Add the var expresssion for later evaluation
+                inner e2
             | TupleGet (exp, _) -> inner exp
-            //| Var v -> "Var"
-                //Deserialization.createNullRecordOrClass v.Type
-                //|> makeLabels v.Name 
-            //| PropertyGet (_, pi, _) -> "(" + pi.Name + ")"
-                //QuotationEvaluator.EvaluateUntyped expr
-                //|> makeLabels pi.Name
+            | Lambda (_, exp) -> inner exp
             | _ -> 
                 expr
                 |> sprintf "MATCH. Unable to build ascii statement: %A"
                 |> invalidOp
     
         inner expr
-
-    let make (expr : Expr) =
-        match expr with
-        | Lambda (_, exp) -> buildAscii exp
-        | _ -> 
-            expr
-            |> sprintf "MATCH. Step was not a Lambda as expected : %A"
-            |> invalidOp
  
 module private ClauseHelpers =  
     
@@ -646,41 +687,49 @@ module CypherBuilder =
 
         member cypher.Run(e : Expr<Query<'T>>) = 
 
+            // Not shoud probably pass these down in the state since they are all mutable
+            let varDic = Generic.Dictionary<string,Expr>()
+            let mutable returnStatement : ReturnContination<'T> = Empty
+            let mutable varPropGet = None
+
             let buildQry (e : Expr<Query<'T>>) =
-                //let mutable count = 0
-                let mutable returnStatement : ReturnContination<'T> = Empty
                 let rec queryBuilder (state : CypherStep list) (e : Expr) =
-                    //count <- count + 1
                     match e with
                     | SpecificCall <@ cypher.Yield @> _ -> state
-                    | SpecificCall <@ cypher.For @> (exp, types, [ stepAbove; thisStep ]) -> state
-                    | Let (_ , _, right) -> queryBuilder state right
+                    
+                    | SpecificCall <@ cypher.For @> (_, _, [ pGet; yieldEnd ]) ->
+                        varPropGet <- Some pGet
+                        queryBuilder state yieldEnd
+                    
+                    | Let (v, e1, e2) -> 
+                        varDic.Add(v.Name, if varPropGet.IsSome then varPropGet.Value else e1) // Add the expresssion for later evaluation
+                        varPropGet <- None
+                        queryBuilder state e2
+                    
+                    | Lambda (_, exp) -> queryBuilder state exp
+                    
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MATCH stepAbove thisStep  
-                        let statement = MatchClause.make thisStep
+                        let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     // TODO: This can RETURN some nulls.. need to look further into that
                     | SpecificCall <@ cypher.OPTIONAL_MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.OPTIONAL_MATCH stepAbove thisStep  
-                        let statement = MatchClause.make thisStep
+                        let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(OPTIONAL_MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
-
-                    // TODO : A create statement needs to take into account variables
-                    // And nodes that have been previously matched
-                    // I will need to track the varible names, and parse as needed
                     | SpecificCall <@ cypher.CREATE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.CREATE stepAbove thisStep  
-                        let statement = MatchClause.make thisStep
+                        let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(CREATE, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.MERGE @> (exp, types, [ stepAbove; thisStep ]) ->
                         //logger count Clause.MERGE stepAbove thisStep  
-                        let statement = MatchClause.make thisStep
+                        let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(MERGE, statement) :: state
                         queryBuilder newState stepAbove
                     
