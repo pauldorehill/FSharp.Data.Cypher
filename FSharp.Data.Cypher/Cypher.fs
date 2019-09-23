@@ -263,23 +263,11 @@ module Cypher =
 
         let asyncRunMap driver map cypher = async { return runMap driver map cypher }
 
-module private Loggers =
-
-    let logger (stepCount : int) (specifCallName : string) (stepAbove : Expr) (thisStep : Expr) =
-        printfn "Step: %i. Step Name: %s" stepCount specifCallName
-        printfn "This step:"
-        printfn "%A"  thisStep
-        printfn "Steps above:" 
-        printfn "%A" stepAbove
-
 module private MatchClause =
     
-    let [<Literal>] private IFSNode = "IFSNode"
-    let [<Literal>] private IFSRelationship = "IFSRelationship"
-
+    let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
+    
     module Rel =
-        
-        let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
 
         let makeIFSRel (expr : Expr) =
             match expr with
@@ -326,15 +314,22 @@ module private MatchClause =
 
             | _ -> None
 
+    module Node =
 
-    let make (varDic : VarDic) expr =
-
-        let makeNodeLabel nodeLabel =
-            match nodeLabel with
-            | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped nodeLabel :?> NodeLabel |> string 
+        let makeIFSNode (expr : Expr) =
+            match expr with
+            | Coerce (PropertyGet (_, node, _), _) -> node.Name
+            | Coerce (Var node, _) -> node.Name
+            | _ -> 
+                sprintf "Could not build IFSNode from expression %A" expr
+                |> invalidOp
+        
+        let makeNodeLabel (expr : Expr) =
+            match expr with
+            | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel |> string 
             | NewObject (ci, [ Value (o, t) ]) when ci.DeclaringType = typeof<NodeLabel> -> NodeLabel (string o) |> string
             | NewUnionCase (ui, _) when ui.Name = "Cons" ->
-                QuotationEvaluator.EvaluateUntyped nodeLabel
+                QuotationEvaluator.EvaluateUntyped expr
                 :?> NodeLabel list
                 |> List.map string
                 |> String.concat ""
@@ -369,54 +364,49 @@ module private MatchClause =
                 |> String.concat ", "
                 |> sprintf "{ %s }"
 
-        let getJoinSymbol (onNodes : string) onRel left right =
-            match left, right with
-            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> onNodes
-            | _ -> onRel
+        let (|Node|_|) (varDic : VarDic) (expr : Expr) =
+
+            let onError prms = sprintf "Unexpected Node constructor: %A" prms |> invalidOp 
+
+            match expr with
+            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> Some "()"
+
+            | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Node> ->
+                match getCtrParamsTypes ci with
+                | prms when prms = [| typeof<NodeLabel> |] -> makeNodeLabel param
+                | prms when prms = [| typeof<IFSNode> |] -> makeIFSNode param
+                | errorPrms -> onError errorPrms
+                |> sprintf "(%s)"
+                |> Some
+
+            | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Node> ->
+                match getCtrParamsTypes ci  with
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |]
+                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabel param2
+                | prms when prms = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
+                | errorPrms -> onError errorPrms
+                |> sprintf "(%s)"
+                |> Some
+            | NewObject (ci, [ param1; param2; param3 ]) when ci.DeclaringType = typeof<Node> ->
+                match getCtrParamsTypes ci  with
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] 
+                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+                | errorPrms -> onError errorPrms
+                |> sprintf "(%s)"
+                |> Some
+            | _ -> None
 
 
-        // NewObject, the number of items in the list matches the no. parameters passed to the constructor
-        // Coarce can let you get the instance of the type when evaluated
-        // Var is for items inside the expression
-        // PropertyGet is for items outside the expression
+    let getJoinSymbol (onNodes : string) onRel left right =
+        match left, right with
+        | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> onNodes
+        | _ -> onRel
+
+    let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
             match expr with
             | Rel.Relationship varDic str -> str
-
-            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> "()"
-            // inside comp, for .. in
-            | NewObject (ci, [ Coerce (Var node, _) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
-            
-            // Outside comp
-            | NewObject (ci, [ Coerce (PropertyGet (_, node, _), _) ]) when ci.DeclaringType = typeof<Node> -> sprintf "(%s)" node.Name
-            
-            | NewObject (ci, [ Coerce (eNode, _); e2 ]) when ci.DeclaringType = typeof<Node> -> // Need eNode to evaluate so can do a comparison
-                let hasProperties =
-                    let ctr = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
-                    match ctr with
-                    | xs when xs = [| typeof<IFSNode>; typeof<NodeLabel> |] || xs = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> false
-                    | xs when xs = [| typeof<IFSNode>; typeof<IFSNode> |] -> true
-                    | _ -> invalidOp "invalid constructor found"
-                match eNode with 
-                | PropertyGet (_, node, _) -> 
-                    if hasProperties 
-                    then sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode e2)
-                    else sprintf "(%s%s)" node.Name (makeNodeLabel e2)
-                | Var node -> 
-                    if hasProperties 
-                    then sprintf "(%s %s)" node.Name (makeNodeWithProperties eNode varDic.[node.Name])
-                    else sprintf "(%s%s)" node.Name (makeNodeLabel e2)
-                | _ -> 
-                    printfn "%A" expr
-                    printfn "%A" eNode
-                    invalidOp "invalid node builder"
-
-            | NewObject (ci, [ Coerce (eNode1, t); eLabels; eNode2]) when ci.DeclaringType = typeof<Node> -> 
-                match eNode1 with 
-                | PropertyGet (_, node, _) ->
-                    sprintf "(%s%s %s)" node.Name (makeNodeLabel eLabels) (makeNodeWithProperties eNode1 eNode2)
-                | _ -> invalidOp "invalid constructor found"
-                
+            | Node.Node varDic str -> str
             | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "--" "-" leftSide rightSide) + inner rightSide
             | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "-->" "->" leftSide rightSide) + inner rightSide
             | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "<--" "<-" leftSide rightSide) + inner rightSide
@@ -450,7 +440,9 @@ module private ClauseHelpers =
             |> invalidOp
 
 module private WhereAndSetStatement =
+
     let [<Literal>] private IFSEntity = "IFSEntity"
+
     let make (e : Expr) =
        
         let addPrimativeParam o =
@@ -616,7 +608,6 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
-    open Loggers
     
     type Query<'T> = NA
 
@@ -643,16 +634,16 @@ module CypherBuilder =
         // Cypher Queries
         // All match statements must end in a Node, one bug here if only use a single operator its still returns IFSNode
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
+        member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
+        member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
+        member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSNode) : Query<'T> = NA
+        member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member __.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
@@ -687,7 +678,7 @@ module CypherBuilder =
 
         member cypher.Run(e : Expr<Query<'T>>) = 
 
-            // Not shoud probably pass these down in the state since they are all mutable
+            // TODO: should probably pass these down in the state?
             let varDic = Generic.Dictionary<string,Expr>()
             let mutable returnStatement : ReturnContination<'T> = Empty
             let mutable varPropGet = None
@@ -709,51 +700,43 @@ module CypherBuilder =
                     | Lambda (_, exp) -> queryBuilder state exp
                     
                     | SpecificCall <@ cypher.MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.MATCH stepAbove thisStep  
                         let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     // TODO: This can RETURN some nulls.. need to look further into that
                     | SpecificCall <@ cypher.OPTIONAL_MATCH @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.OPTIONAL_MATCH stepAbove thisStep  
                         let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(OPTIONAL_MATCH, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.CREATE @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.CREATE stepAbove thisStep  
                         let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(CREATE, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.MERGE @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.MERGE stepAbove thisStep  
                         let statement = MatchClause.make varDic thisStep
                         let newState = NonParameterized(MERGE, statement) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.WHERE @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.WHERE stepAbove thisStep  
                         let statement = WhereAndSetStatement.make thisStep
                         let newState = Parameterized(WHERE, statement) :: state
                         queryBuilder newState stepAbove
                     
                     | SpecificCall <@ cypher.SET @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.SET stepAbove thisStep  
                         let statement = WhereAndSetStatement.make thisStep
                         let newState = Parameterized(SET, statement) :: state
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.RETURN stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
                         let newState = NonParameterized(RETURN, statement) :: state
                         returnStatement <- returnStatement.Update continuation
                         queryBuilder newState stepAbove
 
                     | SpecificCall <@ cypher.RETURN_DISTINCT @> (exp, types, [ stepAbove; thisStep ]) ->
-                        //logger count Clause.RETURN_DISTINCT stepAbove thisStep 
                         let (statement, continuation) = ReturnClause.make<'T> thisStep
                         let newState = NonParameterized(RETURN_DISTINCT, statement) :: state
                         returnStatement <- returnStatement.Update continuation
