@@ -63,7 +63,7 @@ type Clause =
         | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
         | _ -> false
     member this.IsRead = not(this.IsWrite)
-        
+         
 module Clause =
     
     let isRead (clause : Clause) = clause.IsRead
@@ -125,7 +125,8 @@ type CypherStep =
         | Parameterized (c, _) -> c
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
     static member FixStringParameter (typ : Type, o : obj) = 
-        if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter 
+        if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter
+        elif typ = typeof<bool> then (o :?> bool).ToString().ToLower()
         else string o
      static member Paramkey = "$"
    

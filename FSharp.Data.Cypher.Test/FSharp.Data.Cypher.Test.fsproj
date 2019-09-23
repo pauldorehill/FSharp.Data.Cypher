@@ -9,8 +9,8 @@
 
   <ItemGroup>
     <Compile Include="Setup.fs" />
-    <Compile Include="QueryBuilding.fs" />
-    <Compile Include="QueryRunning.fs" />
+    <Compile Include="Match.fs" />
+    <Compile Include="Return.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
 

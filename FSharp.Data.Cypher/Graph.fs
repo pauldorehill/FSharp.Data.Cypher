@@ -44,8 +44,11 @@ type Rel(relationship : IFSRelationship) =
 [<NoComparison; NoEquality>]
 type Node() =
     interface IFSEntity
-    // Match a Node with the label, do not bind to any variable name
+    /// Match a Node with the label, do not bind to any variable name
     new (label : NodeLabel) = Node()
+
+    /// Match a Node with all the labels, do not bind to any variable name
+    new (label : NodeLabel list) = Node()
 
     /// Match a Node and bind it to the variable name
     new (node : IFSNode) = Node()

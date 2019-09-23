@@ -40,10 +40,8 @@ type AllAllowed =
       boolList : bool List 
       boolArray : bool array 
       boolSet : bool Set }
-      interface IFSNode with 
-        member __.Labels = None
+    interface IFSNode
 
-[<AutoOpen>]
 module Graph =  
     
     // Need to have a Neo4j instance running with Auth disabled
@@ -138,37 +136,34 @@ module ``All Allowed`` =
 module ``Movie Graph As Records`` =
     
     type LotsOfLabels() =
-        interface IFSNode with
-            member __.Labels = Label.forNode [ "Label1"; "Label2"; "Label3"; "Label4"]    
+        interface IFSNode
+        member __.Labels = [ "Label1"; "Label2"; "Label3"; "Label4"] |> List.map NodeLabel
     
     type LabelWithSpace() =
-        interface IFSNode with
-            member __.Labels = Label.forNode [ "Label with spaces"]
+        interface IFSNode
+        member __.Labels = NodeLabel "Label with spaces"
 
     type Movie =
         { title : string
           tagline : string option
           released : int }
-        interface IFSNode with
-            member __.Labels = Some [ Label "Movie" ]
+        interface IFSNode
+        member __.Label = NodeLabel "Movie"
     
     type Person =
         { born : int
           name : string }
-        interface IFSNode with
-            member __.Labels =
-                [ "Person" ]
-                |> List.map Label
-                |> Some
+        interface IFSNode
+        member __.Labels = NodeLabel "Person"
        
     type ActedIn =
         { roles : string list }
-        interface IFSRelationship with
-            member __.Label = Label "ACTED_IN"
+        interface IFSRelationship
+        member __.Label = RelLabel "ACTED_IN"
     
     type Directed() =
-        interface IFSRelationship with
-            member __.Label = Label "DIRECTED"
+        interface IFSRelationship
+        member __.Label = RelLabel "DIRECTED"
     
     type Graph =
         static member Movie : Query<Movie> = NA

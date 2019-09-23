@@ -22,8 +22,11 @@ module private MatchClause =
 
         let makeIFSRel (expr : Expr) =
             match expr with
-            | Coerce (PropertyGet (_, rel, _), _) -> rel.Name
-            | Coerce (Var rel, _) -> rel.Name
+            //| Coerce (PropertyGet (_, rel, _), _) -> rel.Name
+            //| Coerce (Var rel, _) -> rel.Name
+            | PropertyGet (None, rel, []) -> rel.Name
+            | Var rel -> rel.Name
+            | ValueWithName (_, _, name) -> name
             | _ -> 
                 sprintf "Could not build IFSRelationship from expression %A" expr
                 |> invalidOp
@@ -31,13 +34,10 @@ module private MatchClause =
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
             let rec inner (expr : Expr) =
                 match expr with
-                | Var rel -> QuotationEvaluator.EvaluateUntyped varDic.[rel.Name] :?> RelLabel |> string
-                | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
-                | PropertyGet (Some (Var v), pi, []) ->
-                    let t = FSharpValue.MakeRecord(v.Type, Array.zeroCreate (FSharpType.GetRecordFields v.Type).Length)
-                    pi.GetValue t :?> RelLabel |> string
-                | Value (obj, _) -> obj :?> RelLabel |> string
                 | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
+                | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
+                | Value (obj, _) -> obj :?> RelLabel |> string
+                | Var rel -> QuotationEvaluator.EvaluateUntyped varDic.[rel.Name] :?> RelLabel |> string
                 | SpecificCall <@ (/) @> (_, _, xs) -> List.map inner xs |> String.concat "|"
                 | _ -> sprintf "Could not build RelLabel from expression %A" expr |> invalidOp
                 
@@ -71,21 +71,22 @@ module private MatchClause =
             match expr with
             | Coerce (PropertyGet (_, node, _), _) -> node.Name
             | Coerce (Var node, _) -> node.Name
-            | _ -> 
-                sprintf "Could not build IFSNode from expression %A" expr
-                |> invalidOp
+            | _ -> sprintf "Could not build IFSNode from expression %A" expr |> invalidOp
         
-        let makeNodeLabel (expr : Expr) =
+        let makeNodeLabel<'T> (varDic : VarDic) (expr : Expr) =
             match expr with
-            | PropertyGet (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel |> string 
-            | NewObject (ci, [ Value (o, t) ]) when ci.DeclaringType = typeof<NodeLabel> -> NodeLabel (string o) |> string
-            | NewUnionCase (ui, _) when ui.Name = "Cons" ->
-                QuotationEvaluator.EvaluateUntyped expr
-                :?> NodeLabel list
-                |> List.map string
-                |> String.concat ""
-            | _ -> invalidOp "Could not build node label(s)"
-            |> string
+            | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
+            | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
+            | Value (obj, _) -> obj :?> 'T
+            | Var node -> QuotationEvaluator.EvaluateUntyped varDic.[node.Name] :?> 'T
+            | _ -> sprintf "Could not build NodeLabel from expression %A" expr |> invalidOp
+
+        let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
+            match expr with
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
+            | _ -> makeNodeLabel<NodeLabel list> varDic expr
+            |> List.map string 
+            |> String.concat ""
 
         // TODO: This needs some serious attention
         let makeNodeWithProperties e1 e2 =
@@ -125,8 +126,11 @@ module private MatchClause =
 
             | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci with
-                | prms when prms = [| typeof<NodeLabel> |] -> makeNodeLabel param
-                | prms when prms = [| typeof<IFSNode> |] -> makeIFSNode param
+                | prms when prms = [| typeof<NodeLabel> |] -> makeNodeLabel<NodeLabel> varDic param |> string
+                | prms when prms = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
+                | prms when prms = [| typeof<IFSNode> |] -> 
+                    makeIFSNode param
+                    |> string
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
                 |> Some
@@ -134,7 +138,7 @@ module private MatchClause =
             | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci  with
                 | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |]
-                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabel param2
+                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabel varDic param2
                 | prms when prms = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
@@ -360,19 +364,20 @@ module CypherBuilder =
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
     
-    type Query<'T> = NA
-
-    type private ReturnContination<'T> = 
-        | ReturnContination of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
-        | Empty
+    type private ReturnContination<'T> =
+        | Continuation of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
+        | NoReturnClause
         member this.Update v =
             match this with
-            | ReturnContination _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
-            | Empty -> ReturnContination v
+            | NoReturnClause -> Continuation v
+            | Continuation _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
         member this.Value =
             match this with
-            | ReturnContination v -> v
-            | Empty -> invalidOp "A Cypher query must contain a RETURN clause" // Not strictly true... DELETE doesn't
+            | NoReturnClause -> invalidOp "You must always return something - use RETURN (unit)"
+            | Continuation c -> c
+
+
+    type Query<'T> = NA
 
     type CypherBuilder() =
         
@@ -385,16 +390,16 @@ module CypherBuilder =
         // Cypher Queries
         // All match statements must end in a Node, one bug here if only use a single operator its still returns IFSNode
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member __.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
@@ -453,7 +458,7 @@ module CypherBuilder =
                 varDic
             
             // TODO: should probably pass this down in the state
-            let mutable returnStatement : ReturnContination<'T> = Empty
+            let mutable returnStatement : ReturnContination<'T> = NoReturnClause
 
             let buildQry (e : Expr<Query<'T>>) =
                 let rec queryBuilder (state : CypherStep list) (e : Expr) =
