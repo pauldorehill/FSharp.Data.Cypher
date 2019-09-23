@@ -153,11 +153,22 @@ module Relationship =
     module ``Single Parameter Constructor`` =
 
         module ``RelLabel`` =
-        
+            
             let label = "REL_LABEL"
+            
             let relLabel = RelLabel label
-            let rtnSt = sprintf "MATCH [:%s] RETURN " label
+            
+            type RelType =
+                { Value : string }
+                interface IFSRelationship
+                member __.Label = RelLabel label
+                static member StaticLabel = RelLabel label
+
+            type Graph =
+                static member Rel : Query<RelType> = NA
         
+            let rtnSt = sprintf "MATCH [:%s] RETURN " label
+
             [<Fact>]
             let ``Create in Rel Constructor`` () =
                 cypher {
@@ -194,6 +205,25 @@ module Relationship =
                 cypher {
                     let relLabel = RelLabel label
                     MATCH (Rel relLabel)
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(q, rtnSt)
+                
+            [<Fact>]
+            let ``For .. in with member`` () =
+                cypher {
+                    for rel in Graph.Rel do
+                    MATCH (Rel rel.Label)
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(q, rtnSt)
+                
+            [<Fact>]
+            let ``For .. in with Static member`` () =
+                cypher {
+                    MATCH (Rel RelType.StaticLabel)
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized

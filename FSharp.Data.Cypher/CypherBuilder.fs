@@ -14,22 +14,39 @@ open FSharp.Data.Cypher
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
+type Query<'T> = NA
+
 module private MatchClause =
 
-    let makeLabel<'T> (varDic : VarDic) (expr : Expr) =
+    let makeLabel (varDic : VarDic) (expr : Expr) =
         match expr with
-        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
-        | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
-        | Value (obj, _) -> obj :?> 'T
-        | Var node -> QuotationEvaluator.EvaluateUntyped varDic.[node.Name] :?> 'T
-        | _ -> sprintf "Could not build Label of type %s from expression %A" typeof<'T>.Name expr |> invalidOp
+        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
+        | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
+        | Value (obj, _) -> obj
+        | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+        | PropertyGet (Some (Var var), pi, []) ->
+            let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+            // In this case the obj is actually NA of the union type Query<'T> = NA
+            // so will need to create an instance of it and call the property
+            if varObj.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
+            then 
+                FSharpType.GetRecordFields var.Type
+                |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
+                |> pi.GetValue
+            else varObj
 
-    let makeIFS<'T> (expr : Expr) =
-        match expr with
-        | PropertyGet (None, ifs, []) -> ifs.Name
-        | Var ifs -> ifs.Name
-        | ValueWithName (_, _, name) -> name
-        | _ -> sprintf "Could not build IFS of type %s from expression %A" typeof<'T>.Name expr |> invalidOp
+        | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
+
+    let makeIFS (expr : Expr) =
+        let rec inner (expr : Expr) =
+            match expr with
+            | PropertyGet (None, ifs, []) -> ifs.Name
+            | Var ifs -> ifs.Name
+            | ValueWithName (_, _, name) -> name
+            | Coerce (expr, _) -> inner expr
+            | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
+        
+        inner expr
 
     module Rel =
 
@@ -37,15 +54,15 @@ module private MatchClause =
             let rec inner (expr : Expr) =
                 match expr with
                 | SpecificCall <@ (/) @> (_, _, xs) -> List.map inner xs |> String.concat "|"
-                | _ -> makeLabel<RelLabel> varDic expr |> string
+                | _ -> makeLabel varDic expr :?> RelLabel |> string
                 
             inner expr
 
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
-            | ctr, [ param ] when ctr = [| typeof<IFSRelationship> |] -> makeIFS<IFSRelationship> param
+            | ctr, [ param ] when ctr = [| typeof<IFSRelationship> |] -> makeIFS param //:?> IFSRelationship
             | ctr, [ param ] when ctr = [| typeof<RelLabel> |] -> makeRelLabel varDic param
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> makeIFS<IFSRelationship> param1 + makeRelLabel varDic param2
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> makeIFS param1 + makeRelLabel varDic param2
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
             |> sprintf "[%s]"
 
@@ -54,7 +71,7 @@ module private MatchClause =
         let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> makeLabel<NodeLabel list> varDic expr
+            | _ -> makeLabel varDic expr :?> NodeLabel list
             |> List.map string 
             |> String.concat ""
 
@@ -91,11 +108,11 @@ module private MatchClause =
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | [||], [] -> ""
-            | ctr, [ param ] when ctr = [| typeof<NodeLabel> |] -> makeLabel<NodeLabel> varDic param |> string
+            | ctr, [ param ] when ctr = [| typeof<NodeLabel> |] -> makeLabel varDic param :?> NodeLabel |> string
             | ctr, [ param ] when ctr = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
-            | ctr, [ param ] when ctr = [| typeof<IFSNode> |] -> makeIFS<IFSNode> param
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFS<IFSNode> param1 + (makeLabel<NodeLabel> varDic param2 |> string)
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFS<IFSNode> param1 + makeNodeLabelList varDic param2
+            | ctr, [ param ] when ctr = [| typeof<IFSNode> |] -> makeIFS param
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFS param1 + (makeLabel varDic param2 :?> NodeLabel |> string)
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFS param1 + makeNodeLabelList varDic param2
             | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
             | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
             | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
@@ -308,8 +325,6 @@ module CypherBuilder =
             match this with
             | NoReturnClause -> invalidOp "You must always return something - use RETURN (())" // Need to improve this
             | Continuation c -> c
-
-    type Query<'T> = NA
 
     type CypherBuilder() =
         
