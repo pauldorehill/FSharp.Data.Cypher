@@ -13,6 +13,7 @@
     <Compile Include="Graph.fs" />
     <Compile Include="Serialize.fs" />
     <Compile Include="Cypher.fs" />
+    <Compile Include="CypherBuilder.fs" />
   </ItemGroup>
 
   <ItemGroup>
