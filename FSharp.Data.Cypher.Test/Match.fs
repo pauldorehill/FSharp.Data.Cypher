@@ -10,6 +10,8 @@ module Node =
 
     module ``Empty Constructor`` =
         
+        let rtnSt = sprintf "MATCH %s RETURN "
+
         [<Fact>]
         let ``Single Node`` () =
 
@@ -18,7 +20,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, "MATCH () RETURN ")
+            |> fun q -> Assert.Equal(q, rtnSt "()")
             
         [<Fact>]
         let ``Two Nodes --`` () =
@@ -28,7 +30,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, "MATCH ()--() RETURN ")
+            |> fun q -> Assert.Equal(q, rtnSt "()--()")
             
         [<Fact>]
         let ``Two Nodes -->`` () =
@@ -38,7 +40,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, "MATCH ()-->() RETURN ")
+            |> fun q -> Assert.Equal(q, rtnSt "()-->()")
             
         [<Fact>]
         let ``Two Nodes <--`` () =
@@ -48,7 +50,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, "MATCH ()<--() RETURN ")
+            |> fun q -> Assert.Equal(q, rtnSt "()<--()")
     
     module ``Single Parameter Constructor`` =
 

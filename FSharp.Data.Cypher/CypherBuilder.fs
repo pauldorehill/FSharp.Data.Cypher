@@ -17,19 +17,15 @@ type private VarDic = Generic.Dictionary<string,Expr>
 module private MatchClause =
     
     let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
-    
+
     module Rel =
 
         let makeIFSRel (expr : Expr) =
             match expr with
-            //| Coerce (PropertyGet (_, rel, _), _) -> rel.Name
-            //| Coerce (Var rel, _) -> rel.Name
             | PropertyGet (None, rel, []) -> rel.Name
             | Var rel -> rel.Name
             | ValueWithName (_, _, name) -> name
-            | _ -> 
-                sprintf "Could not build IFSRelationship from expression %A" expr
-                |> invalidOp
+            | _ -> sprintf "Could not build IFSRelationship from expression %A" expr |> invalidOp
 
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
             let rec inner (expr : Expr) =
@@ -137,8 +133,8 @@ module private MatchClause =
 
             | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci  with
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |]
-                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabel varDic param2
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFSNode param1 + makeNodeLabel varDic param2
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabelList varDic param2
                 | prms when prms = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
@@ -146,8 +142,8 @@ module private MatchClause =
 
             | NewObject (ci, [ param1; param2; param3 ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci  with
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] 
-                         || prms = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
                 | errorPrms -> onError errorPrms
                 |> sprintf "(%s)"
                 |> Some
@@ -167,10 +163,10 @@ module private MatchClause =
             | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "--" "-" leftSide rightSide) + inner rightSide
             | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "-->" "->" leftSide rightSide) + inner rightSide
             | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "<--" "<-" leftSide rightSide) + inner rightSide
-            | Coerce (exp, typ) when typ = typeof<IFSEntity> -> inner exp
-            | Let (v, e1, e2) -> inner e2
-            | TupleGet (exp, _) -> inner exp
-            | Lambda (_, exp) -> inner exp
+            | Coerce (expr, _) -> inner expr
+            | Let (_, _, expr) -> inner expr
+            | TupleGet (expr, _) -> inner expr
+            | Lambda (_, expr) -> inner expr
             | _ -> 
                 expr
                 |> sprintf "MATCH. Unable to build ascii statement: %A"
