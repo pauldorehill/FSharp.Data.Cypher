@@ -12,11 +12,9 @@ open FSharp.Quotations.Evaluator
 open Neo4j.Driver.V1
 open FSharp.Data.Cypher
 
-type private VarDic = Generic.Dictionary<string,Expr>
+type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
 module private MatchClause =
-    
-    let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
 
     let makeLabel<'T> (varDic : VarDic) (expr : Expr) =
         match expr with
@@ -24,16 +22,16 @@ module private MatchClause =
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
         | Value (obj, _) -> obj :?> 'T
         | Var node -> QuotationEvaluator.EvaluateUntyped varDic.[node.Name] :?> 'T
-        | _ -> sprintf "Could not build %s from expression %A" typeof<'T>.Name expr |> invalidOp
+        | _ -> sprintf "Could not build Label of type %s from expression %A" typeof<'T>.Name expr |> invalidOp
+
+    let makeIFS<'T> (expr : Expr) =
+        match expr with
+        | PropertyGet (None, ifs, []) -> ifs.Name
+        | Var ifs -> ifs.Name
+        | ValueWithName (_, _, name) -> name
+        | _ -> sprintf "Could not build IFS of type %s from expression %A" typeof<'T>.Name expr |> invalidOp
 
     module Rel =
-
-        let makeIFSRel (expr : Expr) =
-            match expr with
-            | PropertyGet (None, rel, []) -> rel.Name
-            | Var rel -> rel.Name
-            | ValueWithName (_, _, name) -> name
-            | _ -> sprintf "Could not build IFSRelationship from expression %A" expr |> invalidOp
 
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
             let rec inner (expr : Expr) =
@@ -43,35 +41,15 @@ module private MatchClause =
                 
             inner expr
 
-        let (|Relationship|_|) (varDic : VarDic) (expr : Expr) =
-
-            let onError prms = sprintf "Unexpected Rel constructor: %A" prms |> invalidOp 
-
-            match expr with
-            | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Rel> -> 
-                match getCtrParamsTypes ci with
-                | prms when prms = [| typeof<IFSRelationship> |] -> makeIFSRel param
-                | prms when prms = [| typeof<RelLabel> |] -> makeRelLabel varDic param
-                | errorPrms -> onError errorPrms
-                |> sprintf "[%s]"
-                |> Some
-
-            | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Rel> ->
-                match getCtrParamsTypes ci with
-                | prms when prms = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> (makeIFSRel param1, makeRelLabel varDic param2)
-                | errorPrms -> onError errorPrms
-                ||> sprintf "[%s%s]"
-                |> Some
-
-            | _ -> None
+        let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
+            match ctrTypes, ctrExpr with
+            | ctr, [ param ] when ctr = [| typeof<IFSRelationship> |] -> makeIFS<IFSRelationship> param
+            | ctr, [ param ] when ctr = [| typeof<RelLabel> |] -> makeRelLabel varDic param
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> makeIFS<IFSRelationship> param1 + makeRelLabel varDic param2
+            | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
+            |> sprintf "[%s]"
 
     module Node =
-
-        let makeIFSNode (expr : Expr) =
-            match expr with
-            | Coerce (PropertyGet (_, node, _), _) -> node.Name
-            | Coerce (Var node, _) -> node.Name
-            | _ -> sprintf "Could not build IFSNode from expression %A" expr |> invalidOp
 
         let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
             match expr with
@@ -82,91 +60,80 @@ module private MatchClause =
 
         // TODO: This needs some serious attention
         let makeNodeWithProperties e1 e2 =
-            let originalNode = QuotationEvaluator.EvaluateUntyped e1
-            let nodeWithProps = QuotationEvaluator.EvaluateUntyped e2 
+            invalidOp "TODO: Rewrite node maker with properties"
+            //let originalNode = QuotationEvaluator.EvaluateUntyped e1
+            //let nodeWithProps = QuotationEvaluator.EvaluateUntyped e2 
 
-            if originalNode.GetType() <> nodeWithProps.GetType() then invalidOp "Can't compare different types for Node properties"
-            else
-                let pNames =
-                    originalNode.GetType()
-                    |> FSharp.Reflection.FSharpType.GetRecordFields
-                    |> Array.map (fun x -> x.Name)
+            //if originalNode.GetType() <> nodeWithProps.GetType() then invalidOp "Can't compare different types for Node properties"
+            //else
+            //    let pNames =
+            //        originalNode.GetType()
+            //        |> FSharp.Reflection.FSharpType.GetRecordFields
+            //        |> Array.map (fun x -> x.Name)
 
-                let oFields = FSharp.Reflection.FSharpValue.GetRecordFields originalNode
-                let nFields = FSharp.Reflection.FSharpValue.GetRecordFields nodeWithProps
+            //    let oFields = FSharp.Reflection.FSharpValue.GetRecordFields originalNode
+            //    let nFields = FSharp.Reflection.FSharpValue.GetRecordFields nodeWithProps
 
-                pNames
-                |> Array.indexed
-                |> Array.choose (fun (i, pName) -> 
-                    let o = oFields.[i]
-                    let n = nFields.[i]
-                    if  o = n then None 
-                    // TODO: Combine into the full type checks on properties
-                    else 
-                        if n.GetType() = typeof<string> then sprintf "'%s'" (string n) else string n
-                        |> sprintf "%s : %s" pName
-                        |> Some)
-                |> String.concat ", "
-                |> sprintf "{ %s }"
+            //    pNames
+            //    |> Array.indexed
+            //    |> Array.choose (fun (i, pName) -> 
+            //        let o = oFields.[i]
+            //        let n = nFields.[i]
+            //        if  o = n then None 
+            //        // TODO: Combine into the full type checks on properties
+            //        else 
+            //            if n.GetType() = typeof<string> then sprintf "'%s'" (string n) else string n
+            //            |> sprintf "%s : %s" pName
+            //            |> Some)
+            //    |> String.concat ", "
+            //    |> sprintf "{ %s }"
 
-        let (|Node|_|) (varDic : VarDic) (expr : Expr) =
+        let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
+            match ctrTypes, ctrExpr with
+            | [||], [] -> ""
+            | ctr, [ param ] when ctr = [| typeof<NodeLabel> |] -> makeLabel<NodeLabel> varDic param |> string
+            | ctr, [ param ] when ctr = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
+            | ctr, [ param ] when ctr = [| typeof<IFSNode> |] -> makeIFS<IFSNode> param
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFS<IFSNode> param1 + (makeLabel<NodeLabel> varDic param2 |> string)
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFS<IFSNode> param1 + makeNodeLabelList varDic param2
+            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
+            | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+            | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+            | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
+            |> sprintf "(%s)"
+    
+    let (|GetConstructors|_|) (typ : Type) (expr : Expr) =
+        let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
+        match expr with
+        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some (getCtrParamsTypes ci, paramsExpr)
+        | _ -> None
 
-            let onError prms = sprintf "Unexpected Node constructor: %A" prms |> invalidOp 
+    let (|BuildJoin|_|) operator (symbol : string) expr =
+        match expr with
+        | SpecificCall operator (_, _, [ left; right ]) ->
+            match left, right with
+            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) 
+                when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> if symbol = "<-" then symbol + "-" else "-" + symbol
+            | _ -> symbol
+            |> fun s -> Some (left, s, right)
+        | _ -> None
 
-            match expr with
-            | NewObject (ci, []) when ci.DeclaringType = typeof<Node> -> Some "()"
-
-            | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Node> ->
-                match getCtrParamsTypes ci with
-                | prms when prms = [| typeof<NodeLabel> |] -> makeLabel<NodeLabel> varDic param |> string
-                | prms when prms = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
-                | prms when prms = [| typeof<IFSNode> |] -> 
-                    makeIFSNode param
-                    |> string
-                | errorPrms -> onError errorPrms
-                |> sprintf "(%s)"
-                |> Some
-
-            | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Node> ->
-                match getCtrParamsTypes ci  with
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFSNode param1 + (makeLabel<NodeLabel> varDic param2 |> string)
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabelList varDic param2
-                | prms when prms = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
-                | errorPrms -> onError errorPrms
-                |> sprintf "(%s)"
-                |> Some
-
-            | NewObject (ci, [ param1; param2; param3 ]) when ci.DeclaringType = typeof<Node> ->
-                match getCtrParamsTypes ci  with
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
-                | errorPrms -> onError errorPrms
-                |> sprintf "(%s)"
-                |> Some
-
-            | _ -> None
-
-    let getJoinSymbol (onNodes : string) onRel left right =
-        match left, right with
-        | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> onNodes
-        | _ -> onRel
+    let typeOfNode = typeof<Node>
+    let typeOfRel = typeof<Rel>
 
     let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
             match expr with
-            | Rel.Relationship varDic str -> str
-            | Node.Node varDic str -> str
-            | SpecificCall <@ (--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "--" "-" leftSide rightSide) + inner rightSide
-            | SpecificCall <@ (-->) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "-->" "->" leftSide rightSide) + inner rightSide
-            | SpecificCall <@ (<--) @> (_, _, [ leftSide; rightSide ]) -> inner leftSide + (getJoinSymbol "<--" "<-" leftSide rightSide) + inner rightSide
+            | GetConstructors typeOfRel (ctrTypes, exprList) -> Rel.make varDic ctrTypes exprList
+            | GetConstructors typeOfNode (ctrTypes, exprList) -> Node.make varDic ctrTypes exprList
+            | BuildJoin <@ (--) @> "-" (left, sym, right) -> inner left + sym + inner right
+            | BuildJoin <@ (-->) @> "->" (left, sym, right) -> inner left + sym + inner right
+            | BuildJoin <@ (<--) @> "<-" (left, sym, right) -> inner left + sym + inner right
             | Coerce (expr, _) -> inner expr
             | Let (_, _, expr) -> inner expr
             | TupleGet (expr, _) -> inner expr
             | Lambda (_, expr) -> inner expr
-            | _ -> 
-                expr
-                |> sprintf "MATCH. Unable to build ascii statement: %A"
-                |> invalidOp
+            | _ -> sprintf "Unable to build MATCH statement: %A" expr |> invalidOp
     
         inner expr
  
@@ -205,13 +172,8 @@ module private WhereAndSetStatement =
             |> Choice2Of2
 
         let rec builder (e : Expr) =
-            //printfn "%A" e
             match e with
             | SpecificCall <@@ (=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " = " ] @ builder right
-                //match left, right with
-                //| Var v, PropertyGet (None, pi, []) -> [ Choice1Of2 v.Name ; Choice1Of2 " = " ; addSerializedParam right ]
-                //| PropertyGet (None, pi, []), Var v -> [ addSerializedParam right ; Choice1Of2 " = " ; Choice1Of2 v.Name ]
-                //| _ -> builder left @  [ Choice1Of2 " = " ] @ builder right
             | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " < " ] @ builder right
             | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " <= " ] @ builder right
             | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> builder left @ [ Choice1Of2 " > " ] @ builder right
@@ -365,9 +327,8 @@ module CypherBuilder =
             | Continuation _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
         member this.Value =
             match this with
-            | NoReturnClause -> invalidOp "You must always return something - use RETURN (unit)"
+            | NoReturnClause -> invalidOp "You must always return something - use RETURN (())" // Need to improve this
             | Continuation c -> c
-
 
     type Query<'T> = NA
 
@@ -443,13 +404,9 @@ module CypherBuilder =
                     | ShapeCombination (_, xs) -> List.iter inner xs
                     | ShapeLambda (_, e) -> inner e
                     | ShapeVar _ -> ()
-                        //printfn "Shape %A" e
-                        //if varPropGet.IsSome then varDic.Add(v.Name, varPropGet.Value)
-                        //varPropGet <- None
                 inner e
                 varDic
             
-            // TODO: should probably pass this down in the state
             let mutable returnStatement : ReturnContination<'T> = NoReturnClause
 
             let buildQry (e : Expr<Query<'T>>) =
