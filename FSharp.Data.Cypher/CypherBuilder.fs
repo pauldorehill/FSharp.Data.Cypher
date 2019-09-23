@@ -18,6 +18,14 @@ module private MatchClause =
     
     let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
 
+    let makeLabel<'T> (varDic : VarDic) (expr : Expr) =
+        match expr with
+        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
+        | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
+        | Value (obj, _) -> obj :?> 'T
+        | Var node -> QuotationEvaluator.EvaluateUntyped varDic.[node.Name] :?> 'T
+        | _ -> sprintf "Could not build %s from expression %A" typeof<'T>.Name expr |> invalidOp
+
     module Rel =
 
         let makeIFSRel (expr : Expr) =
@@ -30,12 +38,8 @@ module private MatchClause =
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
             let rec inner (expr : Expr) =
                 match expr with
-                | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
-                | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> RelLabel |> string
-                | Value (obj, _) -> obj :?> RelLabel |> string
-                | Var rel -> QuotationEvaluator.EvaluateUntyped varDic.[rel.Name] :?> RelLabel |> string
                 | SpecificCall <@ (/) @> (_, _, xs) -> List.map inner xs |> String.concat "|"
-                | _ -> sprintf "Could not build RelLabel from expression %A" expr |> invalidOp
+                | _ -> makeLabel<RelLabel> varDic expr |> string
                 
             inner expr
 
@@ -68,19 +72,11 @@ module private MatchClause =
             | Coerce (PropertyGet (_, node, _), _) -> node.Name
             | Coerce (Var node, _) -> node.Name
             | _ -> sprintf "Could not build IFSNode from expression %A" expr |> invalidOp
-        
-        let makeNodeLabel<'T> (varDic : VarDic) (expr : Expr) =
-            match expr with
-            | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
-            | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr :?> 'T
-            | Value (obj, _) -> obj :?> 'T
-            | Var node -> QuotationEvaluator.EvaluateUntyped varDic.[node.Name] :?> 'T
-            | _ -> sprintf "Could not build NodeLabel from expression %A" expr |> invalidOp
 
         let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> makeNodeLabel<NodeLabel list> varDic expr
+            | _ -> makeLabel<NodeLabel list> varDic expr
             |> List.map string 
             |> String.concat ""
 
@@ -122,7 +118,7 @@ module private MatchClause =
 
             | NewObject (ci, [ param ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci with
-                | prms when prms = [| typeof<NodeLabel> |] -> makeNodeLabel<NodeLabel> varDic param |> string
+                | prms when prms = [| typeof<NodeLabel> |] -> makeLabel<NodeLabel> varDic param |> string
                 | prms when prms = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
                 | prms when prms = [| typeof<IFSNode> |] -> 
                     makeIFSNode param
@@ -133,7 +129,7 @@ module private MatchClause =
 
             | NewObject (ci, [ param1; param2 ]) when ci.DeclaringType = typeof<Node> ->
                 match getCtrParamsTypes ci  with
-                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFSNode param1 + makeNodeLabel varDic param2
+                | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFSNode param1 + (makeLabel<NodeLabel> varDic param2 |> string)
                 | prms when prms = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFSNode param1 + makeNodeLabelList varDic param2
                 | prms when prms = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
                 | errorPrms -> onError errorPrms
