@@ -10,7 +10,7 @@ type IFSRelationship = interface end
 
 [<NoComparison; NoEquality>]
 type NodeLabel(label : string) = 
-    member __.Value = label
+    member _.Value = label
     override this.ToString() = NodeLabel.Make this.Value
     static member Make (label : string) =
         if label.Contains(" ") then sprintf "`%s`" label else label
@@ -18,7 +18,7 @@ type NodeLabel(label : string) =
 
 [<NoComparison; NoEquality>]
 type RelLabel(label : string) = 
-    member __.Value = label
+    member _.Value = label
     override this.ToString() = NodeLabel.Make this.Value
     static member inline (/) (r1 : RelLabel, r2 : RelLabel) = r2
 

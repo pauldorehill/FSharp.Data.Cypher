@@ -161,7 +161,7 @@ module Relationship =
             type RelType =
                 { Value : string }
                 interface IFSRelationship
-                member __.Label = RelLabel label
+                member _.Label = RelLabel label
                 static member StaticLabel = RelLabel label
 
             type Graph =

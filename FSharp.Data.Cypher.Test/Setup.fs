@@ -56,9 +56,9 @@ module ``All Allowed`` =
         |> Generic.Dictionary
         |> fun xs ->
             { new IEntity with 
-                member __.Id = invalidOp "Fake Entity."
+                member _.Id = invalidOp "Fake Entity."
                 member this.get_Item (key : string) : obj = this.Properties.Item key
-                member __.Properties = xs :> Generic.IReadOnlyDictionary<string,obj> }
+                member _.Properties = xs :> Generic.IReadOnlyDictionary<string,obj> }
 
     let baseList =
         [ "string", box "EMU"
@@ -137,33 +137,33 @@ module ``Movie Graph As Records`` =
     
     type LotsOfLabels() =
         interface IFSNode
-        member __.Labels = [ "Label1"; "Label2"; "Label3"; "Label4"] |> List.map NodeLabel
+        member _.Labels = [ "Label1"; "Label2"; "Label3"; "Label4"] |> List.map NodeLabel
     
     type LabelWithSpace() =
         interface IFSNode
-        member __.Labels = NodeLabel "Label with spaces"
+        member _.Labels = NodeLabel "Label with spaces"
 
     type Movie =
         { title : string
           tagline : string option
           released : int }
         interface IFSNode
-        member __.Label = NodeLabel "Movie"
+        member _.Label = NodeLabel "Movie"
     
     type Person =
         { born : int
           name : string }
         interface IFSNode
-        member __.Labels = NodeLabel "Person"
-       
+        member _.Labels = NodeLabel "Person"
+      
     type ActedIn =
         { roles : string list }
         interface IFSRelationship
-        member __.Label = RelLabel "ACTED_IN"
+        member _.Label = RelLabel "ACTED_IN"
     
     type Directed() =
         interface IFSRelationship
-        member __.Label = RelLabel "DIRECTED"
+        member _.Label = RelLabel "DIRECTED"
     
     type Graph =
         static member Movie : Query<Movie> = NA

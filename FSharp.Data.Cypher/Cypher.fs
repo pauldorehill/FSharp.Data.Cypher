@@ -71,8 +71,8 @@ module Clause =
     let isWrite (clause : Clause) = clause.IsWrite
 
 type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
-    member __.Results = results
-    member __.Summary = summary
+    member _.Results = results
+    member _.Summary = summary
 
 module QueryResult =
 
@@ -81,10 +81,10 @@ module QueryResult =
     let summary (cr : QueryResult<'T>) = cr.Summary
 
 type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
-    member __.Results = results
-    member __.Summary = summary
-    member __.Session = session
-    member __.Transaction = transaction
+    member _.Results = results
+    member _.Summary = summary
+    member _.Session = session
+    member _.Transaction = transaction
     member this.AsyncCommit() = 
         async {
             do! this.Transaction.CommitAsync() |> Async.AwaitTask
@@ -158,12 +158,12 @@ module CypherStep =
 type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let Paramkey = "$"
     let (query, prms) = CypherStep.buildQuery querySteps
-    member __.QuerySteps = querySteps
-    member __.Continuation = continuation
-    member __.Parameters = prms
-    member __.Query = String.concat " " query
-    member __.QueryMultiline = String.concat Environment.NewLine query 
-    member __.IsWrite = querySteps |> List.exists (fun x -> x.Clause.IsWrite)
+    member _.QuerySteps = querySteps
+    member _.Continuation = continuation
+    member _.Parameters = prms
+    member _.Query = String.concat " " query
+    member _.QueryMultiline = String.concat Environment.NewLine query 
+    member _.IsWrite = querySteps |> List.exists (fun x -> x.Clause.IsWrite)
     member this.QueryNonParameterized = // TODO : should build this at the same time as the paramterized query
         (this.Query, this.Parameters)
         ||> List.fold (fun state (k, o) -> 

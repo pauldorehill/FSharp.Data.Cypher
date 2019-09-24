@@ -24,7 +24,7 @@ module private MatchClause =
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
         | Value (obj, _) -> obj
         | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-        | PropertyGet (Some (Var var), pi, []) ->
+        | PropertyGet (Some(Var var), pi, []) ->
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
             // In this case the obj is actually NA of the union type Query<'T> = NA
             // so will need to create an instance of it and call the property
@@ -122,7 +122,7 @@ module private MatchClause =
     let (|GetConstructors|_|) (typ : Type) (expr : Expr) =
         let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
         match expr with
-        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some (getCtrParamsTypes ci, paramsExpr)
+        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some(getCtrParamsTypes ci, paramsExpr)
         | _ -> None
 
     let (|BuildJoin|_|) operator (symbol : string) expr =
@@ -132,7 +132,7 @@ module private MatchClause =
             | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) 
                 when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> if symbol = "<-" then symbol + "-" else "-" + symbol
             | _ -> symbol
-            |> fun s -> Some (left, s, right)
+            |> fun s -> Some(left, s, right)
         | _ -> None
 
     let typeOfNode = typeof<Node>
@@ -162,7 +162,7 @@ module private ClauseHelpers =
         match exp with
         | Value (o, typ) -> CypherStep.FixStringParameter(typ, o)
         | Var v -> v.Name
-        | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
+        | PropertyGet (Some(Var v), pi, _) -> makePropertyKey v pi
         | PropertyGet (None, pi, _) -> pi.Name
         | _ ->
             exp
@@ -209,7 +209,7 @@ module private WhereAndSetStatement =
             | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ] 
             //| ValueWithName (o, typ, _) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ]
             | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ] // Also matches ValueWithName
-            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
+            | PropertyGet (Some(PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
             | PropertyGet (None, pi, _) -> 
                 if Deserialization.hasInterface pi.PropertyType IFSEntity 
@@ -246,7 +246,7 @@ module private ReturnClause =
             // This may be a bit of a hack, but it works!
             Expr.Value(makeNewType v.Name v.Type di, v.Type)
 
-        | PropertyGet (Some (Var v), pi, _) ->
+        | PropertyGet (Some(Var v), pi, _) ->
             let key = makePropertyKey v pi
             let o = Deserialization.fixTypes pi.Name pi.PropertyType di.[key]
             Expr.Value(o, pi.PropertyType)
@@ -300,7 +300,6 @@ module private BasicClause =
             exprs
             |> List.map extractStatement
             |> String.concat ", "
-
         | Let (_, _, expr) 
         | Lambda (_, expr) -> make expr
         | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
@@ -329,53 +328,53 @@ module CypherBuilder =
     type CypherBuilder() =
         
         // Need to define a yield method. It is used rather than zero in case there are variables in scope
-        member __.Yield(source : 'T) : Query<'T> = NA
+        member _.Yield(source : 'T) : Query<'T> = NA
 
         // f needs a different type 'R to allow multiple for in do loops
-        member __.For(source : Query<'T>, f : 'T -> Query<'R>) : Query<'R> = NA 
+        member _.For(source : Query<'T>, f : 'T -> Query<'R>) : Query<'R> = NA 
         
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member __.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member __.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member __.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member __.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
-        member __.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member _.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
-        member __.SET(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member _.SET(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
 
         [<CustomOperation(ClauseNames.RETURN, MaintainsVariableSpace = true)>]
-        member __.RETURN(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.RETURN(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
-        member __.RETURN_DISTINCT(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.RETURN_DISTINCT(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
-        member __.DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
-        member __.DETACH_DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.DETACH_DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         // Can't get this to work with intellisense
         // Might need to change the type to have 2 x generics so can carry the final type
         [<CustomOperation(ClauseNames.ORDER_BY, MaintainsVariableSpace = true)>]
-        member __.ORDER_BY(source : Query<'T>, [<ProjectionParameter>] f) : Query<'T> = NA
+        member _.ORDER_BY(source : Query<'T>, [<ProjectionParameter>] f) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.SKIP, MaintainsVariableSpace = true)>]
-        member __.SKIP(source : Query<'T>, f : int64) : Query<'T> = NA
+        member _.SKIP(source : Query<'T>, f : int64) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
-        member __.LIMIT(source : Query<'T>, f : int64) : Query<'T> = NA
+        member _.LIMIT(source : Query<'T>, f : int64) : Query<'T> = NA
 
-        member __.Quote(query : Expr<Query<'T>>) = NA
+        member _.Quote(query : Expr<Query<'T>>) = NA
 
         member cypher.Run(expr : Expr<Query<'T>>) = 
             // TODO: This is a bit rough and ready
@@ -398,87 +397,66 @@ module CypherBuilder =
                     | ShapeVar _ -> ()
                 inner expr
                 varDic
+
+            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                    let statement = MatchClause.make varDic thisStep
+                    let newState = NonParameterized (clause, statement) :: state
+                    Some(newState, stepAbove)
+                | _ -> None
+            
+            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                    let statement = WhereAndSetStatement.make thisStep
+                    let newState = Parameterized(clause, statement) :: state
+                    Some(newState, stepAbove)
+                | _ -> None
             
             let mutable returnStatement : ReturnContination<'T> = NoReturnClause
+            
+            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
+                    let (statement, continuation) = ReturnClause.make<'T> thisStep
+                    let newState = NonParameterized(clause, statement) :: state
+                    returnStatement <- returnStatement.Update continuation
+                    Some(newState, stepAbove)
+                | _ -> None
+            
+            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
+                    let statement = BasicClause.make thisStep
+                    let newState = NonParameterized(clause, statement) :: state
+                    Some(newState, stepAbove)
+                | _ -> None
 
             let buildQry (expr : Expr<Query<'T>>) =
-                let rec queryBuilder (state : CypherStep list) (expr : Expr) =
+                let rec inner (state : CypherStep list) (expr : Expr) =
                     match expr with
                     | SpecificCall <@ cypher.Yield @> _ -> state
                     | SpecificCall <@ cypher.For @> (_, _, _) -> state
-                    | Let (_, _, expr) | Lambda (_, expr) -> queryBuilder state expr
-                    
-                    | SpecificCall <@ cypher.MATCH @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = MatchClause.make varDic thisStep
-                        let newState = NonParameterized(MATCH, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    // TODO: This can RETURN some nulls.. need to look further into that
-                    | SpecificCall <@ cypher.OPTIONAL_MATCH @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = MatchClause.make varDic thisStep
-                        let newState = NonParameterized(OPTIONAL_MATCH, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.CREATE @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = MatchClause.make varDic thisStep
-                        let newState = NonParameterized(CREATE, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.MERGE @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = MatchClause.make varDic thisStep
-                        let newState = NonParameterized(MERGE, statement) :: state
-                        queryBuilder newState stepAbove
-                    
-                    | SpecificCall <@ cypher.WHERE @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = WhereAndSetStatement.make thisStep
-                        let newState = Parameterized(WHERE, statement) :: state
-                        queryBuilder newState stepAbove
-                    
-                    | SpecificCall <@ cypher.SET @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = WhereAndSetStatement.make thisStep
-                        let newState = Parameterized(SET, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.RETURN @> (_, _, [ stepAbove; thisStep ]) ->
-                        let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = NonParameterized(RETURN, statement) :: state
-                        returnStatement <- returnStatement.Update continuation
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.RETURN_DISTINCT @> (_, _, [ stepAbove; thisStep ]) ->
-                        let (statement, continuation) = ReturnClause.make<'T> thisStep
-                        let newState = NonParameterized(RETURN_DISTINCT, statement) :: state
-                        returnStatement <- returnStatement.Update continuation
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.DELETE @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = BasicClause.make thisStep
-                        let newState = NonParameterized(DELETE, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.DETACH_DELETE @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = BasicClause.make thisStep
-                        let newState = NonParameterized(DETACH_DELETE, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.ORDER_BY @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = BasicClause.make thisStep
-                        let newState = NonParameterized(ORDER_BY, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.SKIP @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = BasicClause.make thisStep
-                        let newState = NonParameterized(SKIP, statement) :: state
-                        queryBuilder newState stepAbove
-
-                    | SpecificCall <@ cypher.LIMIT @> (_, _, [ stepAbove; thisStep ]) ->
-                        let statement = BasicClause.make thisStep
-                        let newState = NonParameterized(LIMIT, statement) :: state
-                        queryBuilder newState stepAbove
-
+                    | Let (_, _, expr) 
+                    | Lambda (_, expr) -> inner state expr
+                    | MatchCreateMerge <@ cypher.MATCH @> MATCH state (newState, stepAbove)
+                    | MatchCreateMerge <@ cypher.OPTIONAL_MATCH @> OPTIONAL_MATCH state (newState, stepAbove)
+                    | MatchCreateMerge <@ cypher.CREATE @> CREATE state (newState, stepAbove)
+                    | MatchCreateMerge <@ cypher.MERGE @> MERGE state (newState, stepAbove) 
+                    | WhereSet <@ cypher.WHERE @> WHERE state (newState, stepAbove)
+                    | WhereSet <@ cypher.SET @> SET state (newState, stepAbove)
+                    | Return <@ cypher.RETURN @> RETURN state (newState, stepAbove)
+                    | Return <@ cypher.RETURN_DISTINCT @> RETURN_DISTINCT state (newState, stepAbove)
+                    | Basic <@ cypher.DELETE @> DELETE state (newState, stepAbove)
+                    | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state (newState, stepAbove)
+                    | Basic <@ cypher.ORDER_BY @> ORDER_BY state (newState, stepAbove)
+                    | Basic <@ cypher.SKIP @> SKIP state (newState, stepAbove)
+                    | Basic <@ cypher.LIMIT @> LIMIT state (newState, stepAbove)
+                    | Basic <@ cypher.DELETE @> DELETE state (newState, stepAbove) -> inner newState stepAbove
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp 
 
-                queryBuilder [] expr, returnStatement.Value
+                inner [] expr, returnStatement.Value
             
             Cypher(buildQry expr)
 
