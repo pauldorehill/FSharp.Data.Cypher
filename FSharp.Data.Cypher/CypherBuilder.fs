@@ -142,30 +142,30 @@ module private MatchClause =
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
             |> sprintf "(%s)"
     
-    let (|GetConstructors|_|) (typ : Type) (expr : Expr) =
+    let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
         let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
         match expr with
-        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some(getCtrParamsTypes ci, paramsExpr)
+        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some(fResult (getCtrParamsTypes ci) paramsExpr)
         | _ -> None
 
-    let (|BuildJoin|_|) operator (symbol : string) expr =
+    let (|BuildJoin|_|) operator (symbol : string) fResult expr =
         match expr with
         | SpecificCall operator (_, _, [ left; right ]) ->
             match left, right with
-            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) 
-                when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> if symbol = "<-" then symbol + "-" else "-" + symbol
+            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> 
+                if symbol = "<-" then symbol + "-" else "-" + symbol
             | _ -> symbol
-            |> fun s -> Some(left, s, right)
+            |> fun s -> Some(fResult left + s + fResult right)
         | _ -> None
 
     let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors typeOfRel (ctrTypes, exprList) -> Rel.make varDic ctrTypes exprList
-            | GetConstructors typeOfNode (ctrTypes, exprList) -> Node.make varDic ctrTypes exprList
-            | BuildJoin <@ (--) @> "-" (left, sym, right)
-            | BuildJoin <@ (-->) @> "->" (left, sym, right) 
-            | BuildJoin <@ (<--) @> "<-" (left, sym, right) -> inner left + sym + inner right
+            | GetConstructors (Rel.make varDic) typeOfRel statement
+            | GetConstructors (Node.make varDic) typeOfNode statement 
+            | BuildJoin <@ (--) @> "-" inner statement
+            | BuildJoin <@ (-->) @> "->" inner statement 
+            | BuildJoin <@ (<--) @> "<-" inner statement -> statement
             | Coerce (expr, _)
             | Let (_, _, expr)
             | TupleGet (expr, _)
@@ -208,19 +208,20 @@ module private WhereAndSetStatement =
             fun (key : string) -> key, Some o
             |> Choice2Of2
 
-        let (|Operator|_|) opExpr opSymbol expr =
+        let (|Operator|_|) opExpr opSymbol fExpr expr =
             match expr with
-            | SpecificCall opExpr (_, _, [ left; right ]) -> Some(left, [ Choice1Of2(sprintf " %s " opSymbol) ], right)
+            | SpecificCall opExpr (_, _, [ left; right ]) -> 
+                Some(fExpr left @ [ Choice1Of2(sprintf " %s " opSymbol) ] @ fExpr right)
             | _ -> None
 
         let rec inner (e : Expr) =
             match e with
-            | Operator <@@ (=) @@> "=" (left, symbol, right)
-            | Operator <@@ (<) @@> "<" (left, symbol, right)
-            | Operator <@@ (<=) @@> "<=" (left, symbol, right)
-            | Operator <@@ (>) @@> ">" (left, symbol, right)
-            | Operator <@@ (>=) @@> ">=" (left, symbol, right)
-            | Operator <@@ (<>) @@> "<>" (left, symbol, right) -> inner left @ symbol @ inner right 
+            | Operator <@@ (=) @@> "=" inner statement
+            | Operator <@@ (<) @@> "<" inner statement
+            | Operator <@@ (<=) @@> "<=" inner statement
+            | Operator <@@ (>) @@> ">" inner statement
+            | Operator <@@ (>=) @@> ">=" inner statement
+            | Operator <@@ (<>) @@> "<>" inner statement -> statement
             | IfThenElse (left, right, Value(_, _)) -> inner left @ [ Choice1Of2 " AND " ] @ inner right // Value(false) for AND
             | IfThenElse (left, Value(_, _), right) -> inner left @ [ Choice1Of2 " OR " ] @ inner right // Value(true) for OR
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
@@ -423,39 +424,39 @@ module CypherBuilder =
                 inner expr
                 varDic
 
-            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let statement = MatchClause.make varDic thisStep
                     let newState = NonParameterized (clause, statement) :: state
-                    Some(newState, stepAbove)
+                    Some(fExpr newState stepAbove)
                 | _ -> None
             
-            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let statement = WhereAndSetStatement.make thisStep
                     let newState = Parameterized(clause, statement) :: state
-                    Some(newState, stepAbove)
+                    Some(fExpr newState stepAbove)
                 | _ -> None
             
             let mutable returnStatement : ReturnContination<'T> = NoReturnClause
             
-            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     let (statement, continuation) = ReturnClause.make<'T> thisStep
                     let newState = NonParameterized(clause, statement) :: state
                     returnStatement <- returnStatement.Update continuation
-                    Some(newState, stepAbove)
+                    Some(fExpr newState stepAbove)
                 | _ -> None
             
-            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) (expr : Expr) =
+            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     let statement = BasicClause.make thisStep
                     let newState = NonParameterized(clause, statement) :: state
-                    Some(newState, stepAbove)
+                    Some(fExpr newState stepAbove)
                 | _ -> None
 
             let buildQry (expr : Expr<Query<'T>>) =
@@ -465,20 +466,20 @@ module CypherBuilder =
                     | SpecificCall <@ cypher.For @> (_, _, _) -> state
                     | Let (_, _, expr) 
                     | Lambda (_, expr) -> inner state expr
-                    | MatchCreateMerge <@ cypher.MATCH @> MATCH state (newState, stepAbove)
-                    | MatchCreateMerge <@ cypher.OPTIONAL_MATCH @> OPTIONAL_MATCH state (newState, stepAbove)
-                    | MatchCreateMerge <@ cypher.CREATE @> CREATE state (newState, stepAbove)
-                    | MatchCreateMerge <@ cypher.MERGE @> MERGE state (newState, stepAbove) 
-                    | WhereSet <@ cypher.WHERE @> WHERE state (newState, stepAbove)
-                    | WhereSet <@ cypher.SET @> SET state (newState, stepAbove)
-                    | Return <@ cypher.RETURN @> RETURN state (newState, stepAbove)
-                    | Return <@ cypher.RETURN_DISTINCT @> RETURN_DISTINCT state (newState, stepAbove)
-                    | Basic <@ cypher.DELETE @> DELETE state (newState, stepAbove)
-                    | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state (newState, stepAbove)
-                    | Basic <@ cypher.ORDER_BY @> ORDER_BY state (newState, stepAbove)
-                    | Basic <@ cypher.SKIP @> SKIP state (newState, stepAbove)
-                    | Basic <@ cypher.LIMIT @> LIMIT state (newState, stepAbove)
-                    | Basic <@ cypher.DELETE @> DELETE state (newState, stepAbove) -> inner newState stepAbove
+                    | MatchCreateMerge <@ cypher.MATCH @> MATCH state inner stepList
+                    | MatchCreateMerge <@ cypher.OPTIONAL_MATCH @> OPTIONAL_MATCH state inner stepList
+                    | MatchCreateMerge <@ cypher.CREATE @> CREATE state inner stepList
+                    | MatchCreateMerge <@ cypher.MERGE @> MERGE state inner stepList 
+                    | WhereSet <@ cypher.WHERE @> WHERE state inner stepList
+                    | WhereSet <@ cypher.SET @> SET state inner stepList
+                    | Return <@ cypher.RETURN @> RETURN state inner stepList
+                    | Return <@ cypher.RETURN_DISTINCT @> RETURN_DISTINCT state inner stepList
+                    | Basic <@ cypher.DELETE @> DELETE state inner stepList
+                    | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state inner stepList
+                    | Basic <@ cypher.ORDER_BY @> ORDER_BY state inner stepList
+                    | Basic <@ cypher.SKIP @> SKIP state inner stepList
+                    | Basic <@ cypher.LIMIT @> LIMIT state inner stepList
+                    | Basic <@ cypher.DELETE @> DELETE state inner stepList -> stepList
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp 
 
                 inner [] expr, returnStatement.Value

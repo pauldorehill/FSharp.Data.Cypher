@@ -18,9 +18,9 @@ module ClauseNames =
     let [<Literal>] ORDER_BY = "ORDER_BY"
     let [<Literal>] SKIP = "SKIP"
     let [<Literal>] LIMIT = "LIMIT"
-    // TODO - here for write/read check completeness
     let [<Literal>] DELETE = "DELETE"
     let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
+    // TODO - here for write/read check completeness
     let [<Literal>] REMOVE = "REMOVE"
     let [<Literal>] FOREACH = "FOREACH"
 
