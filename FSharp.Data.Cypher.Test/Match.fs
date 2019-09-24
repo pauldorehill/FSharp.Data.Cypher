@@ -10,7 +10,7 @@ module Node =
 
     module ``Empty Constructor`` =
         
-        let rtnSt = sprintf "MATCH %s RETURN "
+        let rtnSt = sprintf "MATCH %s"
 
         [<Fact>]
         let ``Single Node`` () =
@@ -20,7 +20,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, rtnSt "()")
+            |> fun q -> Assert.Equal(rtnSt "()", q)
             
         [<Fact>]
         let ``Two Nodes --`` () =
@@ -30,7 +30,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, rtnSt "()--()")
+            |> fun q -> Assert.Equal(rtnSt "()--()", q)
             
         [<Fact>]
         let ``Two Nodes -->`` () =
@@ -40,7 +40,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, rtnSt "()-->()")
+            |> fun q -> Assert.Equal(rtnSt "()-->()", q)
             
         [<Fact>]
         let ``Two Nodes <--`` () =
@@ -50,7 +50,7 @@ module Node =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal(q, rtnSt "()<--()")
+            |> fun q -> Assert.Equal(rtnSt "()<--()", q)
     
     module ``Single Parameter Constructor`` =
 
@@ -58,7 +58,7 @@ module Node =
         
             let label = "NodeLabel"
             let nodeLabel = NodeLabel label
-            let rtnSt = sprintf "MATCH (:%s) RETURN " label
+            let rtnSt = sprintf "MATCH (:%s)" label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
@@ -67,7 +67,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -77,7 +77,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
@@ -89,7 +89,7 @@ module Node =
 
                 f nodeLabel
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
             let ``Variable in statement`` () =
@@ -99,13 +99,13 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
         module ``NodeLabel list`` =
         
             let label = "NodeLabel"
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
-            let rtnSt = sprintf "MATCH (:%s:%s:%s) RETURN " label label label
+            let rtnSt = sprintf "MATCH (:%s:%s:%s)" label label label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
@@ -114,7 +114,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -124,7 +124,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
@@ -136,7 +136,7 @@ module Node =
 
                 f nodeLabels
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
             let ``Variable in statement`` () =
@@ -146,7 +146,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
 module Relationship =
 
@@ -167,7 +167,7 @@ module Relationship =
             type Graph =
                 static member Rel : Query<RelType> = NA
         
-            let rtnSt = sprintf "MATCH [:%s] RETURN " label
+            let rtnSt = sprintf "MATCH [:%s]" label
 
             [<Fact>]
             let ``Create in Rel Constructor`` () =
@@ -176,7 +176,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -186,7 +186,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
@@ -198,7 +198,7 @@ module Relationship =
 
                 f relLabel
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
             let ``Variable in statement`` () =
@@ -208,7 +208,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
                 
             [<Fact>]
             let ``For .. in with member`` () =
@@ -218,7 +218,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
                 
             [<Fact>]
             let ``For .. in with Static member`` () =
@@ -227,13 +227,13 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
         module ``RelLabel Combination Operator`` =
         
             let label = "REL_LABEL"
             let relLabel = RelLabel label / RelLabel label / RelLabel label
-            let rtnSt = sprintf "MATCH [:%s|:%s|:%s] RETURN " label label label
+            let rtnSt = sprintf "MATCH [:%s|:%s|:%s]" label label label
         
             [<Fact>]
             let ``Create in Rel Constructor`` () =
@@ -242,7 +242,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -252,7 +252,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
@@ -264,7 +264,7 @@ module Relationship =
 
                 f relLabel
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
             let ``Variable in statement`` () =
@@ -274,12 +274,12 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
     
         module ``IRelationship`` =
 
             let rel = { new IFSRelationship }
-            let rtnSt = "MATCH [rel] RETURN "
+            let rtnSt = "MATCH [rel]"
 
             // Quotations can't contain object expressions
             // so use a graph for binding test
@@ -293,7 +293,7 @@ module Relationship =
             //        RETURN ()
             //    }
             //    |> Cypher.queryNonParameterized
-            //    |> fun q -> Assert.Equal(q, rtnSt)
+            //    |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -302,7 +302,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
@@ -314,7 +314,7 @@ module Relationship =
 
                 f rel
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
             let ``Variable in statement`` () =
@@ -324,4 +324,4 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal(q, rtnSt)
+                |> fun q -> Assert.Equal(rtnSt, q)

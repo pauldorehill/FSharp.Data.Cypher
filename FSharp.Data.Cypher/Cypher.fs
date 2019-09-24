@@ -149,10 +149,13 @@ module CypherStep =
             |> sprintf "%s %s" (string c)
 
         steps
-        |> List.mapi (fun i x -> 
+        |> List.indexed
+        |> List.choose (fun (i, x) -> 
             match x with
-            | NonParameterized (c, s) -> sprintf "%s %s" (string c) s
-            | Parameterized (c, prms) -> makeParms c i prms)
+            | NonParameterized (c, s) ->
+                // TODO: This is removing empty statements. Do something better...
+                if s = "" then None else Some(sprintf "%s %s" (string c) s)
+            | Parameterized (c, prms) -> Some(makeParms c i prms))
         |> fun s -> s, prmList
 
 type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =

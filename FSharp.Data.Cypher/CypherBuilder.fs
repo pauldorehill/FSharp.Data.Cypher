@@ -48,6 +48,29 @@ module private MatchClause =
         
         inner expr
 
+    let (|SingleParam|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+        match ctrTypes, ctrExpr with
+        | ctr, [ param ] when ctr = paramTypes -> Some param
+        | _ -> None
+    
+    let (|TwoParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+        match ctrTypes, ctrExpr with
+        | ctr, [ param1; param2 ] when ctr = paramTypes -> Some(param1, param2)
+        | _ -> None
+    
+    let (|ThreeParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+        match ctrTypes, ctrExpr with
+        | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some(param1, param2, param3)
+        | _ -> None
+
+    let typeOfNode = typeof<Node>
+    let typeOfRel = typeof<Rel>
+    let typeofIFSNode = typeof<IFSNode>
+    let typeofIFSRelationship = typeof<IFSRelationship>
+    let typeofNodeLabel = typeof<NodeLabel>
+    let typeofNodeLabelList = typeof<NodeLabel list>
+    let typeofRelLabel = typeof<RelLabel>
+
     module Rel =
 
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
@@ -60,9 +83,9 @@ module private MatchClause =
 
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
-            | ctr, [ param ] when ctr = [| typeof<IFSRelationship> |] -> makeIFS param //:?> IFSRelationship
-            | ctr, [ param ] when ctr = [| typeof<RelLabel> |] -> makeRelLabel varDic param
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSRelationship>; typeof<RelLabel> |] -> makeIFS param1 + makeRelLabel varDic param2
+            | SingleParam [| typeofIFSRelationship |] param -> makeIFS param
+            | SingleParam [| typeofRelLabel |] param  -> makeRelLabel varDic param
+            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> makeIFS param1 + makeRelLabel varDic param2
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
             |> sprintf "[%s]"
 
@@ -108,14 +131,14 @@ module private MatchClause =
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | [||], [] -> ""
-            | ctr, [ param ] when ctr = [| typeof<NodeLabel> |] -> makeLabel varDic param :?> NodeLabel |> string
-            | ctr, [ param ] when ctr = [| typeof<NodeLabel list> |] -> makeNodeLabelList varDic param
-            | ctr, [ param ] when ctr = [| typeof<IFSNode> |] -> makeIFS param
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel> |] -> makeIFS param1 + (makeLabel varDic param2 :?> NodeLabel |> string)
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list> |] -> makeIFS param1 + makeNodeLabelList varDic param2
-            | ctr, [ param1; param2 ] when ctr = [| typeof<IFSNode>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param2
-            | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
-            | ctr, [ param1; param2; param3 ] when ctr = [| typeof<IFSNode>; typeof<NodeLabel list>; typeof<IFSNode> |] -> makeNodeWithProperties param1 param3
+            | SingleParam [| typeofNodeLabel |] param -> makeLabel varDic param :?> NodeLabel |> string
+            | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList varDic param
+            | SingleParam [| typeofIFSNode |] param -> makeIFS param
+            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> makeIFS param1 + (makeLabel varDic param2 :?> NodeLabel |> string)
+            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> makeIFS param1 + makeNodeLabelList varDic param2
+            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> makeNodeWithProperties param1 param2
+            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
+            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
             |> sprintf "(%s)"
     
@@ -134,9 +157,6 @@ module private MatchClause =
             | _ -> symbol
             |> fun s -> Some(left, s, right)
         | _ -> None
-
-    let typeOfNode = typeof<Node>
-    let typeOfRel = typeof<Rel>
 
     let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
@@ -188,16 +208,21 @@ module private WhereAndSetStatement =
             fun (key : string) -> key, Some o
             |> Choice2Of2
 
+        let (|Operator|_|) opExpr opSymbol expr =
+            match expr with
+            | SpecificCall opExpr (_, _, [ left; right ]) -> Some(left, [ Choice1Of2(sprintf " %s " opSymbol) ], right)
+            | _ -> None
+
         let rec inner (e : Expr) =
             match e with
-            | SpecificCall <@@ (=) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " = " ] @ inner right
-            | SpecificCall <@@ (<) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " < " ] @ inner right
-            | SpecificCall <@@ (<=) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " <= " ] @ inner right
-            | SpecificCall <@@ (>) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " > " ] @ inner right
-            | SpecificCall <@@ (>=) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " >= " ] @ inner right
-            | SpecificCall <@@ (<>) @@> (_, _, [ left; right ]) -> inner left @ [ Choice1Of2 " <> " ] @ inner right
-            | IfThenElse (left, right, Value (o, t)) -> inner left @ [ Choice1Of2 " AND " ] @ inner right // Value(false) for AND
-            | IfThenElse (left, Value (o, t), right) -> inner left @ [ Choice1Of2 " OR " ] @ inner right // Value(true) for OR
+            | Operator <@@ (=) @@> "=" (left, symbol, right)
+            | Operator <@@ (<) @@> "<" (left, symbol, right)
+            | Operator <@@ (<=) @@> "<=" (left, symbol, right)
+            | Operator <@@ (>) @@> ">" (left, symbol, right)
+            | Operator <@@ (>=) @@> ">=" (left, symbol, right)
+            | Operator <@@ (<>) @@> "<>" (left, symbol, right) -> inner left @ symbol @ inner right 
+            | IfThenElse (left, right, Value(_, _)) -> inner left @ [ Choice1Of2 " AND " ] @ inner right // Value(false) for AND
+            | IfThenElse (left, Value(_, _), right) -> inner left @ [ Choice1Of2 " OR " ] @ inner right // Value(true) for OR
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
                 let len = List.length exprs
                 exprs 
@@ -322,7 +347,7 @@ module CypherBuilder =
             | Continuation _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
         member this.Value =
             match this with
-            | NoReturnClause -> invalidOp "You must always return something - use RETURN (())" // Need to improve this
+            | NoReturnClause -> invalidOp "You must always return something - use RETURN ()" // Need to improve this
             | Continuation c -> c
 
     type CypherBuilder() =
