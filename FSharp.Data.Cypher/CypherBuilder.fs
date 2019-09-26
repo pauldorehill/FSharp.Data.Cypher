@@ -18,10 +18,10 @@ type Query<'T> =
     | NA
 
 type Query =
-    static member IsTypeOf (o : obj) = o.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
+    static member IsTypeDefOf (o : obj) = o.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
 
 module private MatchClause =
-
+    
     let makeLabel (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
@@ -32,7 +32,7 @@ module private MatchClause =
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
             // In this case the obj is actually NA of the union type Query<'T> = NA
             // so will need to create an instance of it and call the property
-            if Query.IsTypeOf varObj
+            if Query.IsTypeDefOf varObj
             then 
                 FSharpType.GetRecordFields var.Type
                 |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
@@ -78,7 +78,8 @@ module private MatchClause =
 
         let (|IsCreateSeq|_|) (expr : Expr) =
             match expr with
-            | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ]) when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
+            | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ]) 
+                when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
             | _ -> None
 
         let makeList (expr : Expr) =
@@ -92,12 +93,14 @@ module private MatchClause =
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some(makeList expr)
             | _ -> None
 
+        let singleInt i = sprintf "*%i" i
+
         match expr with
         | Var var when var.Type = typeof<uint32 list> -> makeList varDic.[var.Name]
-        | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] :?> uint32 |> sprintf "*%i"
+        | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] :?> uint32 |> singleInt
         | Value (_, t) when t = typeof<uint32 list> -> makeList expr
-        | Value (o, t) when t = typeof<uint32> -> o :?> uint32 |> sprintf "*%i"
-        | UInt32 i -> sprintf "*%i" i
+        | Value (o, t) when t = typeof<uint32> -> o :?> uint32 |> singleInt
+        | UInt32 i -> singleInt i
         | ListCons statement
         | IsCreateSeq (GetRange statement) -> statement
         | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp

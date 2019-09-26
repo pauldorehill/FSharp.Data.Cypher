@@ -8,34 +8,35 @@ type IFSNode = interface end
 /// Marker interface for a type that is a Relationship
 type IFSRelationship = interface end
 
-[<NoComparison; NoEquality>]
+[<Sealed>]
+type private Label =
+    static member Make (label : string) =
+        match label with
+        | s when s = "" -> ""
+        | s when s.Contains " " -> sprintf ":`%s`" label
+        | s -> sprintf ":%s" label
+
+[<Sealed; NoComparison; NoEquality>]
 type NodeLabel(label : string) = 
-    static member internal Make (label : string) =
-        if label = "" then ""
-        else
-            if label.Contains(" ") then sprintf "`%s`" label else label
-            |> sprintf ":%s"
-    
-    member _.Value = NodeLabel.Make label
+    member _.Value = Label.Make label
     override this.ToString() = this.Value
 
-[<NoComparison; NoEquality>]
+[<Sealed; NoComparison; NoEquality>]
 type RelLabel(label : string) = 
-    member _.Value = NodeLabel.Make label
-    static member CombineSymbol = "|"
+    member _.Value = Label.Make label
     static member (+) (r1 : RelLabel, r2 : RelLabel) = 
         match r1.Value, r2.Value with
         | s1, s2 when s1 = "" && s2 = "" -> r1
         | s1, _ when s1 = "" -> r2
         | _, s2 when s2 = "" -> r1
-        | s1, s2 -> s1.[1..] + RelLabel.CombineSymbol + s2 |> RelLabel
+        | s1, s2 -> s1.[1..] + "|" + s2 |> RelLabel
 
     static member (/) (r1 : RelLabel, r2 : RelLabel) = r1 + r2
     static member get_Zero() = RelLabel ""
     override this.ToString() = this.Value
 
 /// Match any Relationship
-[<NoComparison; NoEquality>]
+[<Sealed; NoComparison; NoEquality>]
 type Rel() =
     interface IFSEntity
     
@@ -62,10 +63,9 @@ type Rel() =
     /// Match a Relationship with the label and a variable path length
     new (label : RelLabel, pathHops : uint32 list) = Rel()
 
-
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
-[<NoComparison; NoEquality>]
+[<Sealed; NoComparison; NoEquality>]
 type Node() =
     interface IFSEntity
     /// Match a Node with the label, do not bind to any variable name
