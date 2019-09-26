@@ -14,7 +14,11 @@ open FSharp.Data.Cypher
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
-type Query<'T> = NA
+type Query<'T> = 
+    | NA
+
+type Query =
+    static member IsTypeOf (o : obj) = o.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
 
 module private MatchClause =
 
@@ -28,7 +32,7 @@ module private MatchClause =
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
             // In this case the obj is actually NA of the union type Query<'T> = NA
             // so will need to create an instance of it and call the property
-            if varObj.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
+            if Query.IsTypeOf varObj
             then 
                 FSharpType.GetRecordFields var.Type
                 |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
@@ -48,6 +52,61 @@ module private MatchClause =
         
         inner expr
 
+    let makePathHops (varDic : VarDic) (expr : Expr) =
+        
+        let makeStatement startValue endValue =
+            if endValue = UInt32.MaxValue then sprintf "*%i.." startValue
+            else sprintf "*%i..%i" startValue endValue
+
+        let (|GetRange|_|) (expr : Expr) =
+            match expr with
+            | Call (None, mi, [ expr1; expr2 ]) when mi.Name = "op_Range" -> 
+               
+                let extractValue (expr : Expr) =
+                    match expr with
+                    | Value (value, _) -> value
+                    | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+                    | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
+                    | _ ->  invalidOp (sprintf "Could not extract list value expression %A" expr)
+                    :?> uint32
+
+                let startValue = extractValue expr1
+                let endValue = extractValue expr2
+                Some(makeStatement startValue endValue)
+ 
+            | _ -> None
+
+        let (|IsCreateSeq|_|) (expr : Expr) =
+            match expr with
+            | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ]) when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
+            | _ -> None
+
+        let makeList (expr : Expr) =
+            QuotationEvaluator.EvaluateUntyped expr 
+            :?> uint32 list 
+            |> fun xs -> List.min xs, List.max xs
+            ||> makeStatement
+
+        let (|ListCons|_|) (expr : Expr) =
+            match expr with
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some(makeList expr)
+            | _ -> None
+
+        match expr with
+        | Var var when var.Type = typeof<uint32 list> -> makeList varDic.[var.Name]
+        | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] :?> uint32 |> sprintf "*%i"
+        | Value (_, t) when t = typeof<uint32 list> -> makeList expr
+        | Value (o, t) when t = typeof<uint32> -> o :?> uint32 |> sprintf "*%i"
+        | UInt32 i -> sprintf "*%i" i
+        | ListCons statement
+        | IsCreateSeq (GetRange statement) -> statement
+        | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
+
+    let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+        match ctrTypes, ctrExpr with
+        | [||], [] -> Some ()
+        | _ -> None
+    
     let (|SingleParam|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
         match ctrTypes, ctrExpr with
         | ctr, [ param ] when ctr = paramTypes -> Some param
@@ -70,22 +129,28 @@ module private MatchClause =
     let typeofNodeLabel = typeof<NodeLabel>
     let typeofNodeLabelList = typeof<NodeLabel list>
     let typeofRelLabel = typeof<RelLabel>
+    let typeofUInt32 = typeof<uint32>
+    let typeofUInt32List = typeof<uint32 list>
 
     module Rel =
 
         let makeRelLabel (varDic : VarDic) (expr : Expr) =
             let rec inner (expr : Expr) =
                 match expr with
-                | SpecificCall <@ (/) @> (_, _, xs) -> List.map inner xs |> String.concat "|"
-                | _ -> makeLabel varDic expr :?> RelLabel |> string
-                
-            inner expr
+                | SpecificCall <@ (/) @> (_, _, xs) -> List.sumBy inner xs
+                | _ -> makeLabel varDic expr :?> RelLabel
+            inner expr |> string
 
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
+            | NoParams -> ""
             | SingleParam [| typeofIFSRelationship |] param -> makeIFS param
             | SingleParam [| typeofRelLabel |] param  -> makeRelLabel varDic param
+            | SingleParam [| typeofUInt32 |] param
+            | SingleParam [| typeofUInt32List |] param -> makePathHops varDic param
             | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> makeIFS param1 + makeRelLabel varDic param2
+            | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) -> makeRelLabel varDic param1 + makePathHops varDic param2
+            | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> makeRelLabel varDic param1 + makePathHops varDic param2
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
             |> sprintf "[%s]"
 
@@ -130,7 +195,7 @@ module private MatchClause =
 
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
-            | [||], [] -> ""
+            | NoParams -> ""
             | SingleParam [| typeofNodeLabel |] param -> makeLabel varDic param :?> NodeLabel |> string
             | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList varDic param
             | SingleParam [| typeofIFSNode |] param -> makeIFS param
@@ -170,7 +235,8 @@ module private MatchClause =
             | Let (_, _, expr)
             | TupleGet (expr, _)
             | Lambda (_, expr) -> inner expr
-            | _ -> sprintf "Unable to build MATCH statement: %A" expr |> invalidOp
+            | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the match statement" v.Name)
+            | _ -> invalidOp (sprintf "Unable to build MATCH statement from Exprssion: %A" expr)
     
         inner expr
  
@@ -314,7 +380,7 @@ module private ReturnClause =
             statement, result
 
 module private BasicClause =
-    
+
     open ClauseHelpers
 
     let rec make (expr : Expr) =
@@ -338,7 +404,7 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
-    
+
     type private ReturnContination<'T> =
         | Continuation of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
         | NoReturnClause
@@ -348,7 +414,7 @@ module CypherBuilder =
             | Continuation _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
         member this.Value =
             match this with
-            | NoReturnClause -> invalidOp "You must always return something - use RETURN ()" // Need to improve this
+            | NoReturnClause -> invalidOp "You must always return something - use RETURN ()" // Need to improve this as in real life you don't...
             | Continuation c -> c
 
     type CypherBuilder() =
