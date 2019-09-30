@@ -166,6 +166,8 @@ module Relationship =
         interface IFSRelationship
         member _.Label = RelLabel label
         static member StaticLabel = RelLabel label
+        member _.IntLabel = 3u
+        static member IntLabelList = [ 0u .. 3u ]
 
     type Graph =
         static member Rel : Query<IFSRelationship> = NA
@@ -292,6 +294,25 @@ module Relationship =
             let ``Fixed no of path hops`` () =
                 cypher {
                     MATCH (Rel(3u))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal("MATCH [*3]", q)
+            
+            [<Fact>]
+            let ``Fixed no of path hops on static member`` () =
+                cypher {
+                    MATCH (Rel RelType.IntLabelList)
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal("MATCH [*0..3]", q)
+            
+            [<Fact>]
+            let ``Fixed no of path hops on for in`` () =
+                cypher {
+                    for rel in Graph.RelOfType do
+                    MATCH (Rel rel.IntLabel)
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized

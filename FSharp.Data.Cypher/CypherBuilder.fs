@@ -22,7 +22,7 @@ type Query =
 
 module private MatchClause =
     
-    let makeLabel (varDic : VarDic) (expr : Expr) =
+    let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
@@ -61,17 +61,8 @@ module private MatchClause =
         let (|GetRange|_|) (expr : Expr) =
             match expr with
             | Call (None, mi, [ expr1; expr2 ]) when mi.Name = "op_Range" -> 
-               
-                let extractValue (expr : Expr) =
-                    match expr with
-                    | Value (value, _) -> value
-                    | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-                    | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
-                    | _ ->  invalidOp (sprintf "Could not extract list value expression %A" expr)
-                    :?> uint32
-
-                let startValue = extractValue expr1
-                let endValue = extractValue expr2
+                let startValue = extractObject varDic expr1 :?> uint32//extractValue expr1
+                let endValue = extractObject varDic expr2 :?> uint32//extractValue expr2
                 Some(makeStatement startValue endValue)
  
             | _ -> None
@@ -82,25 +73,44 @@ module private MatchClause =
                 when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
             | _ -> None
 
-        let makeList (expr : Expr) =
+        let makeListRng xs = List.min xs, List.max xs
+
+        let makeListFromExpr (expr : Expr) =
             QuotationEvaluator.EvaluateUntyped expr 
             :?> uint32 list 
-            |> fun xs -> List.min xs, List.max xs
+            |> makeListRng
             ||> makeStatement
-
-        let (|ListCons|_|) (expr : Expr) =
-            match expr with
-            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some(makeList expr)
-            | _ -> None
 
         let singleInt i = sprintf "*%i" i
 
+        let (|SingleInt|_|) (expr : Expr) =
+            match expr with
+            | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
+            | Value (o, t) when t = typeof<uint32> -> Some o 
+            | PropertyGet (_, pi, _) when pi.PropertyType = typeof<uint32> -> extractObject varDic expr |> Some
+            | _ -> None
+
+        let (|IntList|_|) (expr : Expr) =
+            match expr with
+            | Var var when var.Type = typeof<uint32 list> -> makeListFromExpr varDic.[var.Name] |> Some
+            | Value (_, t) when t = typeof<uint32 list> -> makeListFromExpr expr |> Some
+            | PropertyGet (_, pi, _) when pi.PropertyType = typeof<uint32 list> -> 
+                extractObject varDic expr 
+                :?> uint32 list 
+                |> makeListRng 
+                ||> makeStatement
+                |> Some
+            | _ -> None
+
+        let (|ListCons|_|) (expr : Expr) =
+            match expr with
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some(makeListFromExpr expr)
+            | _ -> None
+
         match expr with
-        | Var var when var.Type = typeof<uint32 list> -> makeList varDic.[var.Name]
-        | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] :?> uint32 |> singleInt
-        | Value (_, t) when t = typeof<uint32 list> -> makeList expr
-        | Value (o, t) when t = typeof<uint32> -> o :?> uint32 |> singleInt
         | UInt32 i -> singleInt i
+        | SingleInt o -> o :?> uint32 |> singleInt
+        | IntList s -> s
         | ListCons statement
         | IsCreateSeq (GetRange statement) -> statement
         | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
@@ -141,7 +151,7 @@ module private MatchClause =
             let rec inner (expr : Expr) =
                 match expr with
                 | SpecificCall <@ (/) @> (_, _, xs) -> List.sumBy inner xs
-                | _ -> makeLabel varDic expr :?> RelLabel
+                | _ -> extractObject varDic expr :?> RelLabel
             inner expr |> string
 
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
@@ -162,7 +172,7 @@ module private MatchClause =
         let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> makeLabel varDic expr :?> NodeLabel list
+            | _ -> extractObject varDic expr :?> NodeLabel list
             |> List.map string 
             |> String.concat ""
 
@@ -199,10 +209,10 @@ module private MatchClause =
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | NoParams -> ""
-            | SingleParam [| typeofNodeLabel |] param -> makeLabel varDic param :?> NodeLabel |> string
+            | SingleParam [| typeofNodeLabel |] param -> extractObject varDic param :?> NodeLabel |> string
             | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList varDic param
             | SingleParam [| typeofIFSNode |] param -> makeIFS param
-            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> makeIFS param1 + (makeLabel varDic param2 :?> NodeLabel |> string)
+            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> makeIFS param1 + (extractObject varDic param2 :?> NodeLabel |> string)
             | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> makeIFS param1 + makeNodeLabelList varDic param2
             | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> makeNodeWithProperties param1 param2
             | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3

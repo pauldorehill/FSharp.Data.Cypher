@@ -62,7 +62,7 @@ module ``Deserialize`` =
     module ``Primative Types`` =
 
         let spoofDic =  
-            [ "true", box true // dotnet use caps in serialization
+            [ "true", box true
               "false", box false
               "5", box 5L // DB returns int64
               "7", box 7L
@@ -94,10 +94,10 @@ module ``Deserialize`` =
 
         let fInt64 f =
             cypher {
-                RETURN 5L
+                RETURN 7L
             }
             |> f
-            |> fun r -> Assert.Equal(5L, r)
+            |> fun r -> Assert.Equal(7L, r)
 
         let fFloat f =
             cypher {
