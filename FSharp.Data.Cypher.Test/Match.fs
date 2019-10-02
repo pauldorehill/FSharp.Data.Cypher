@@ -17,10 +17,8 @@ module Node =
     let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label ]
 
     type NodeType =
-        { 
+        { StringValue : string
           IntValue : int
-          StringValue : string
-          
           FloatValue : float }
         interface IFSNode
         member _.Label = NodeLabel label
@@ -204,6 +202,26 @@ module Node =
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnSt, q)
 
+            [<Fact>]
+            let ``Record update syntax for param matching`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node({ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})""", q)
+            
+            [<Fact>]
+            let ``New Record`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node({ IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})""", q)
+
     module ``Two Parameter Constructor`` =
 
         module ``(IFSNode, NodeLabel)`` =
@@ -310,24 +328,18 @@ module Node =
 
         module ``(IFSNode, IFSNode)`` =
             
-            let rtnStSingleProp = """MATCH (node { StringValue : "NewStringValue" })"""
+            let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
 
             [<Fact>]
-            let ``For in do statement`` () =
+            let ``Record update syntax for param matching`` () =
                 cypher {
                     for node in Graph.NodeOfType do
-                    MATCH (Node(node, { node with IntValue = 3; FloatValue = 2.0; StringValue = "NewStringValue" }))
+                    MATCH (Node(node, { node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
-
-    
-
-// TODO
-
-
-// Two - All
+            
 // Three - All
 
 module Relationship =

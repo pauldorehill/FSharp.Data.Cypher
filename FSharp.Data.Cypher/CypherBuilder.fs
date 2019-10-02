@@ -53,14 +53,49 @@ module private MatchClause =
             else varObj
 
         | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
+    
+    // TODO : Need to now parameterize the values
+    let makeRecord (varDic : VarDic) typeOfRec (exprs : Expr list) =
+        let addPrimativeParam o = 
+            fun fieldName key -> 
+                //fieldName + ": " + key, Serialization.fixTypes (o.GetType()) o
+                fieldName + ": " + CypherStep.FixStringParameter(o.GetType(), o)
 
-    let makeIFS (expr : Expr) =
+        let getValues expr =
+            match expr with
+            | Var v -> 
+                QuotationEvaluator.EvaluateUntyped varDic.[v.Name]
+                |> addPrimativeParam
+                |> Some
+            | Value(o, _) -> addPrimativeParam o |> Some
+            | PropertyGet (Some _, _, _) -> None
+            | PropertyGet (None, _, _) -> 
+                QuotationEvaluator.EvaluateUntyped expr
+                |> addPrimativeParam
+                |> Some
+            | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
+
+        let fieldValues = List.map getValues exprs
+        
+        FSharpType.GetRecordFields typeOfRec
+        |> Array.indexed
+        |> Array.choose (fun (i, pi) -> fieldValues.[i] |> Option.map (fun f -> f pi.Name))
+
+    let makeIFS (varDic : VarDic) (expr : Expr) =
         let rec inner (expr : Expr) =
             match expr with
+            | Coerce (expr, _) -> inner expr
+            | Let (_, _, exprNext) -> inner exprNext
             | PropertyGet (None, ifs, []) -> ifs.Name
             | Var ifs -> ifs.Name
             | ValueWithName (_, _, name) -> name
-            | Coerce (expr, _) -> inner expr
+            | NewRecord (t, exprs) -> 
+                makeRecord varDic t exprs
+                |> Array.toList
+                |> List.map (fun f -> f "")
+                |> String.concat ", "
+                |> sprintf "{%s}"
+
             | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
         
         inner expr
@@ -128,56 +163,6 @@ module private MatchClause =
         | IsCreateSeq (GetRange statement) -> statement
         | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
 
-    // Still early days...     
-    let makeEntityWithProperties exprOr =
-        
-        let addPrimativeParam fieldName o = 
-            fun (key : string) -> 
-                fieldName + ": " + key, Serialization.fixTypes (o.GetType()) o
-    
-        let paramsInOrder typeOfRec (exprs : Expr list) =
-            let getValues expr =
-                printfn "%A" expr
-                match expr with
-                | Value(o, _) -> string o |> Some
-                | PropertyGet (Some _, _, _) -> None
-                | PropertyGet (None, _, _) -> 
-                    Evaluator.QuotationEvaluator.EvaluateUntyped expr
-                    |> string 
-                    |> Some
-                | _  -> invalidOp(sprintf "Unmatched Expr when making type fields: %A" expr)
-    
-            let fieldValues = List.map getValues exprs
-            
-            FSharpType.GetRecordFields typeOfRec
-            |> Array.indexed
-            |> Array.choose (fun (i, pi) -> fieldValues.[i] |> Option.map (fun x -> pi.Name + ": " + x))
-    
-        let rec hasLet state expr =
-            invalidOp "Not written Let"
-    
-        // This is tricky since the order of the { type with Field } matters
-        // If it is in the same order as the Fields then no let
-        // Coerce (NewRecord ( ... ) if in order
-        // Coerce (Let (FieldName, Value ("NewStringValue").. Let (FieldName if not in order
-        // eg. a let bind for all but the last value passed in
-        // Will always be passing as parameters to final query
-        printfn "%A" exprOr
-        let rec inner expr =
-            match expr with
-            | Let (_, _, _) -> hasLet [] expr
-            | Coerce (expr, _) -> inner expr
-            | NewRecord (t, exprs) -> paramsInOrder t exprs
-            | _ -> invalidOp(sprintf "Could not build Entity with properties from expression: %A" expr)
-    
-        inner exprOr
-        //|> List.mapi (fun i x -> 
-        //    let cnt = x (string i) 
-        //    printfn "%A" (snd cnt)
-        //    fst (x (string(snd cnt))))
-        //|> String.concat ", "
-        //|> sprintf "{%s}"
-
     let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
         match ctrTypes, ctrExpr with
         | [||], [] -> Some ()
@@ -210,13 +195,16 @@ module private MatchClause =
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | NoParams -> ""
-            | SingleParam [| typeofIFSRelationship |] param -> makeIFS param
+            | SingleParam [| typeofIFSRelationship |] param -> makeIFS varDic param
             | SingleParam [| typeofRelLabel |] param  -> makeRelLabel varDic param
             | SingleParam [| typeofUInt32 |] param
             | SingleParam [| typeofUInt32List |] param -> makePathHops varDic param
-            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> makeIFS param1 + makeRelLabel varDic param2
-            | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) -> makeRelLabel varDic param1 + makePathHops varDic param2
-            | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> makeRelLabel varDic param1 + makePathHops varDic param2
+            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> 
+                makeIFS varDic param1 + makeRelLabel varDic param2
+            | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) -> 
+                makeRelLabel varDic param1 + makePathHops varDic param2
+            | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> 
+                makeRelLabel varDic param1 + makePathHops varDic param2
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
             |> sprintf "[%s]"
 
@@ -232,14 +220,22 @@ module private MatchClause =
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | NoParams -> ""
-            | SingleParam [| typeofNodeLabel |] param -> extractObject varDic param :?> NodeLabel |> string
-            | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList varDic param
-            | SingleParam [| typeofIFSNode |] param -> makeIFS param
-            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> makeIFS param1 + (extractObject varDic param2 :?> NodeLabel |> string)
-            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> makeIFS param1 + makeNodeLabelList varDic param2
-            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> makeIFS param1 + makeEntityWithProperties param2
-            //| ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
-            //| ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
+            | SingleParam [| typeofNodeLabel |] param -> 
+                extractObject varDic param :?> NodeLabel |> string
+            | SingleParam [| typeofNodeLabelList |] param -> 
+                makeNodeLabelList varDic param
+            | SingleParam [| typeofIFSNode |] param -> 
+                makeIFS varDic param
+            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> 
+                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string)
+            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> 
+                makeIFS varDic param1 + makeNodeLabelList varDic param2
+            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> 
+                makeIFS varDic param1 + " " + makeIFS varDic param2
+            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> 
+                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string) + makeIFS varDic param3
+            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
+                makeIFS varDic param1 + makeNodeLabelList varDic param2 + makeIFS varDic param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
             |> sprintf "(%s)"
     

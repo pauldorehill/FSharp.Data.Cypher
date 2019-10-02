@@ -90,11 +90,11 @@ type Node() =
 
     /// Match a Node with properties with the label
     /// (n:Node { Name : "Hello" }) can be written as Node(n, NodeLabel "Node", { n with Name = "Hello" })
-    //new (node : IFSNode, label : NodeLabel, nodeWithProperties : IFSNode) = Node()
+    new (node : IFSNode, label : NodeLabel, nodeWithProperties : IFSNode) = Node()
 
     /// Match a Node with properties with the labels
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
-    //new (node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
+    new (node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
     static member (--) (n1 : Node, n2 : Node) = n2
     static member (--) (n : Node, r : Rel) = r
