@@ -32,7 +32,7 @@ type RelLabel(label : string) =
         | s1, s2 -> s1.[1..] + "|" + s2 |> RelLabel
 
     static member (/) (r1 : RelLabel, r2 : RelLabel) = r1 + r2
-    static member get_Zero() = RelLabel ""
+    static member get_Zero() = RelLabel "" // here to allow use of sumBy: not sure if I should keep
     override this.ToString() = this.Value
 
 /// Match any Relationship
@@ -51,17 +51,18 @@ type Rel() =
     
     /// Match a variable path length. It will use the minimum & max value in the list. 
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
-    /// For a list literal it will use the max and min values in the list
-    new (pathHops : uint32 list) = Rel()
+    new (pathHopsRange : uint32 list) = Rel()
 
-    /// Match a Relationship with the label and bind it to the variable name. The (||) operator can be used to specify multiple relationships
+    /// Match a Relationship with the label and bind it to the variable name. The (/) operator can be used to specify multiple relationships
     new (relationship : IFSRelationship, label : RelLabel) = Rel()
     
     /// Match a Relationship with the label and a path length 
     new (label : RelLabel, pathHops : uint32) = Rel()
 
-    /// Match a Relationship with the label and a variable path length
-    new (label : RelLabel, pathHops : uint32 list) = Rel()
+    /// Match a Relationship with the label and a variable path length.
+    /// It will use the minimum & max value in the list. 
+    /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
+    new (label : RelLabel, pathHopsRange : uint32 list) = Rel()
 
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
@@ -84,16 +85,16 @@ type Node() =
     new (node : IFSNode, labels : NodeLabel list) = Node()
 
     /// Match a Node with properties with the label
-    /// (n:Node { Name : 'Hello' }) can be written as Node(n, NodeLabel "Node", { n with Name = 'Hello' })
+    /// (n { Name : "Hello" }) can be written as Node(n, { n with Name = "Hello" })
     new (node : IFSNode, nodeWithProperties : IFSNode) = Node()
 
     /// Match a Node with properties with the label
-    /// (n:Node { Name : 'Hello' }) can be written as Node(n, NodeLabel "Node", { n with Name = 'Hello' })
-    new (node : IFSNode, label : NodeLabel, nodeWithProperties : IFSNode) = Node()
+    /// (n:Node { Name : "Hello" }) can be written as Node(n, NodeLabel "Node", { n with Name = "Hello" })
+    //new (node : IFSNode, label : NodeLabel, nodeWithProperties : IFSNode) = Node()
 
     /// Match a Node with properties with the labels
-    /// (n:Node { Name : 'Hello' }) can be written as Node(n, NodeLabel "Node", { n with Name = 'Hello' })
-    new (node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
+    /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
+    //new (node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
     static member (--) (n1 : Node, n2 : Node) = n2
     static member (--) (n : Node, r : Rel) = r
@@ -107,6 +108,9 @@ type Node() =
 
 [<AutoOpen>]
 module Ascii =
+    // Need this because:
+    // Quotations cannot contain expressions that make member constraint calls, 
+    // or uses of operators that implicitly resolve to a member constraint call
 
     let inline (--) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
     

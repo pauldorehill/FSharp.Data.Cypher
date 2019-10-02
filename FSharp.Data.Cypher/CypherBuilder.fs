@@ -22,16 +22,29 @@ type Query =
 
 module private MatchClause =
     
+    // Use these since match statements aren't always happy with typeof<_>
+    let typeofNode = typeof<Node>
+    let typeofRel = typeof<Rel>
+    let typeofIFSNode = typeof<IFSNode>
+    let typeofIFSRelationship = typeof<IFSRelationship>
+    let typeofNodeLabel = typeof<NodeLabel>
+    let typeofNodeLabelList = typeof<NodeLabel list>
+    let typeofRelLabel = typeof<RelLabel>
+    let typeofUInt32 = typeof<uint32>
+    let typeofUInt32List = typeof<uint32 list>
+    
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
         | Value (obj, _) -> obj
         | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+        | SpecificCall <@ List.map @> (_, _, _)
+        | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (Some(Var var), pi, []) ->
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
             // In this case the obj is actually NA of the union type Query<'T> = NA
-            // so will need to create an instance of it and call the property
+            // so will need to create an instance of it and call the static member
             if Query.IsTypeDefOf varObj
             then 
                 FSharpType.GetRecordFields var.Type
@@ -60,7 +73,7 @@ module private MatchClause =
 
         let (|GetRange|_|) (expr : Expr) =
             match expr with
-            | Call (None, mi, [ expr1; expr2 ]) when mi.Name = "op_Range" -> 
+            | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
                 let startValue = extractObject varDic expr1 :?> uint32//extractValue expr1
                 let endValue = extractObject varDic expr2 :?> uint32//extractValue expr2
                 Some(makeStatement startValue endValue)
@@ -85,16 +98,16 @@ module private MatchClause =
 
         let (|SingleInt|_|) (expr : Expr) =
             match expr with
-            | Var var when var.Type = typeof<uint32> -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
-            | Value (o, t) when t = typeof<uint32> -> Some o 
-            | PropertyGet (_, pi, _) when pi.PropertyType = typeof<uint32> -> extractObject varDic expr |> Some
+            | Var var when var.Type = typeofUInt32 -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
+            | Value (o, t) when t =typeofUInt32 -> Some o 
+            | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject varDic expr |> Some
             | _ -> None
 
         let (|IntList|_|) (expr : Expr) =
             match expr with
-            | Var var when var.Type = typeof<uint32 list> -> makeListFromExpr varDic.[var.Name] |> Some
-            | Value (_, t) when t = typeof<uint32 list> -> makeListFromExpr expr |> Some
-            | PropertyGet (_, pi, _) when pi.PropertyType = typeof<uint32 list> -> 
+            | Var var when var.Type = typeofUInt32List -> makeListFromExpr varDic.[var.Name] |> Some
+            | Value (_, t) when t = typeofUInt32List -> makeListFromExpr expr |> Some
+            | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32List -> 
                 extractObject varDic expr 
                 :?> uint32 list 
                 |> makeListRng 
@@ -115,6 +128,56 @@ module private MatchClause =
         | IsCreateSeq (GetRange statement) -> statement
         | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
 
+    // Still early days...     
+    let makeEntityWithProperties exprOr =
+        
+        let addPrimativeParam fieldName o = 
+            fun (key : string) -> 
+                fieldName + ": " + key, Serialization.fixTypes (o.GetType()) o
+    
+        let paramsInOrder typeOfRec (exprs : Expr list) =
+            let getValues expr =
+                printfn "%A" expr
+                match expr with
+                | Value(o, _) -> string o |> Some
+                | PropertyGet (Some _, _, _) -> None
+                | PropertyGet (None, _, _) -> 
+                    Evaluator.QuotationEvaluator.EvaluateUntyped expr
+                    |> string 
+                    |> Some
+                | _  -> invalidOp(sprintf "Unmatched Expr when making type fields: %A" expr)
+    
+            let fieldValues = List.map getValues exprs
+            
+            FSharpType.GetRecordFields typeOfRec
+            |> Array.indexed
+            |> Array.choose (fun (i, pi) -> fieldValues.[i] |> Option.map (fun x -> pi.Name + ": " + x))
+    
+        let rec hasLet state expr =
+            invalidOp "Not written Let"
+    
+        // This is tricky since the order of the { type with Field } matters
+        // If it is in the same order as the Fields then no let
+        // Coerce (NewRecord ( ... ) if in order
+        // Coerce (Let (FieldName, Value ("NewStringValue").. Let (FieldName if not in order
+        // eg. a let bind for all but the last value passed in
+        // Will always be passing as parameters to final query
+        printfn "%A" exprOr
+        let rec inner expr =
+            match expr with
+            | Let (_, _, _) -> hasLet [] expr
+            | Coerce (expr, _) -> inner expr
+            | NewRecord (t, exprs) -> paramsInOrder t exprs
+            | _ -> invalidOp(sprintf "Could not build Entity with properties from expression: %A" expr)
+    
+        inner exprOr
+        //|> List.mapi (fun i x -> 
+        //    let cnt = x (string i) 
+        //    printfn "%A" (snd cnt)
+        //    fst (x (string(snd cnt))))
+        //|> String.concat ", "
+        //|> sprintf "{%s}"
+
     let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
         match ctrTypes, ctrExpr with
         | [||], [] -> Some ()
@@ -134,16 +197,6 @@ module private MatchClause =
         match ctrTypes, ctrExpr with
         | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some(param1, param2, param3)
         | _ -> None
-
-    let typeOfNode = typeof<Node>
-    let typeOfRel = typeof<Rel>
-    let typeofIFSNode = typeof<IFSNode>
-    let typeofIFSRelationship = typeof<IFSRelationship>
-    let typeofNodeLabel = typeof<NodeLabel>
-    let typeofNodeLabelList = typeof<NodeLabel list>
-    let typeofRelLabel = typeof<RelLabel>
-    let typeofUInt32 = typeof<uint32>
-    let typeofUInt32List = typeof<uint32 list>
 
     module Rel =
 
@@ -176,36 +229,6 @@ module private MatchClause =
             |> List.map string 
             |> String.concat ""
 
-        // TODO: This needs some serious attention
-        let makeNodeWithProperties e1 e2 =
-            invalidOp "TODO: Rewrite node maker with properties"
-            //let originalNode = QuotationEvaluator.EvaluateUntyped e1
-            //let nodeWithProps = QuotationEvaluator.EvaluateUntyped e2 
-
-            //if originalNode.GetType() <> nodeWithProps.GetType() then invalidOp "Can't compare different types for Node properties"
-            //else
-            //    let pNames =
-            //        originalNode.GetType()
-            //        |> FSharp.Reflection.FSharpType.GetRecordFields
-            //        |> Array.map (fun x -> x.Name)
-
-            //    let oFields = FSharp.Reflection.FSharpValue.GetRecordFields originalNode
-            //    let nFields = FSharp.Reflection.FSharpValue.GetRecordFields nodeWithProps
-
-            //    pNames
-            //    |> Array.indexed
-            //    |> Array.choose (fun (i, pName) -> 
-            //        let o = oFields.[i]
-            //        let n = nFields.[i]
-            //        if  o = n then None 
-            //        // TODO: Combine into the full type checks on properties
-            //        else 
-            //            if n.GetType() = typeof<string> then sprintf "'%s'" (string n) else string n
-            //            |> sprintf "%s : %s" pName
-            //            |> Some)
-            //    |> String.concat ", "
-            //    |> sprintf "{ %s }"
-
         let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
             match ctrTypes, ctrExpr with
             | NoParams -> ""
@@ -214,9 +237,9 @@ module private MatchClause =
             | SingleParam [| typeofIFSNode |] param -> makeIFS param
             | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> makeIFS param1 + (extractObject varDic param2 :?> NodeLabel |> string)
             | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> makeIFS param1 + makeNodeLabelList varDic param2
-            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> makeNodeWithProperties param1 param2
-            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
-            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
+            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> makeIFS param1 + makeEntityWithProperties param2
+            //| ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
+            //| ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> makeNodeWithProperties param1 param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
             |> sprintf "(%s)"
     
@@ -226,11 +249,11 @@ module private MatchClause =
         | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some(fResult (getCtrParamsTypes ci) paramsExpr)
         | _ -> None
 
-    let (|BuildJoin|_|) operator (symbol : string) fResult expr =
+    let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
         match expr with
-        | SpecificCall operator (_, _, [ left; right ]) ->
+        | SpecificCall operatorExpr (_, _, [ left; right ]) ->
             match left, right with
-            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeof<Node> && ci2.DeclaringType = typeof<Node> -> 
+            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeofNode && ci2.DeclaringType = typeof<Node> -> 
                 if symbol = "<-" then symbol + "-" else "-" + symbol
             | _ -> symbol
             |> fun s -> Some(fResult left + s + fResult right)
@@ -239,8 +262,8 @@ module private MatchClause =
     let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors (Rel.make varDic) typeOfRel statement
-            | GetConstructors (Node.make varDic) typeOfNode statement 
+            | GetConstructors (Rel.make varDic) typeofRel statement
+            | GetConstructors (Node.make varDic) typeofNode statement 
             | BuildJoin <@ (--) @> "-" inner statement
             | BuildJoin <@ (-->) @> "->" inner statement 
             | BuildJoin <@ (<--) @> "<-" inner statement -> statement
@@ -248,7 +271,7 @@ module private MatchClause =
             | Let (_, _, expr)
             | TupleGet (expr, _)
             | Lambda (_, expr) -> inner expr
-            | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the match statement" v.Name)
+            | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the MATCH statement" v.Name)
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from Exprssion: %A" expr)
     
         inner expr

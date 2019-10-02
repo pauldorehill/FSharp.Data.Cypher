@@ -8,6 +8,28 @@ open Xunit
 
 module Node =
 
+    let node = { new IFSNode }
+
+    let label = "NodeLabel"
+
+    let nodeLabel = NodeLabel label
+
+    let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label ]
+
+    type NodeType =
+        { 
+          IntValue : int
+          StringValue : string
+          
+          FloatValue : float }
+        interface IFSNode
+        member _.Label = NodeLabel label
+        static member StaticLabel = NodeLabel label
+
+    type Graph =
+        static member Node : Query<IFSNode> = NA
+        static member NodeOfType : Query<NodeType> = NA
+
     module ``Empty Constructor`` =
         
         let rtnSt = sprintf "MATCH %s"
@@ -55,9 +77,7 @@ module Node =
     module ``Single Parameter Constructor`` =
 
         module ``NodeLabel`` =
-        
-            let label = "NodeLabel"
-            let nodeLabel = NodeLabel label
+
             let rtnSt = sprintf "MATCH (:%s)" label
         
             [<Fact>]
@@ -103,7 +123,6 @@ module Node =
         
         module ``NodeLabel list`` =
         
-            let label = "NodeLabel"
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
             let rtnSt = sprintf "MATCH (:%s:%s:%s)" label label label
         
@@ -148,8 +167,166 @@ module Node =
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnSt, q)
 
+        module ``IFSNode`` =
+
+            let rtnSt = "MATCH (node)"
+            // Quotations can't contain object expressions
+            // so use a graph for binding test
+
+            [<Fact>]
+            let ``Variable outside function`` () =
+                cypher {
+                    MATCH (Node node)
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ``Variable passed as function parameter`` () =
+                let f (node : IFSNode) =
+                    cypher {
+                        MATCH (Node node)
+                        RETURN ()
+                    }
+
+                f node
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+        
+            [<Fact>]
+            let ``For in do statement`` () =
+                cypher {
+                    for node in Graph.Node do
+                    MATCH (Node node)
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+    module ``Two Parameter Constructor`` =
+
+        module ``(IFSNode, NodeLabel)`` =
+        
+            let rtnSt = "MATCH (node:NodeLabel)"
+
+            [<Fact>]
+            let ``Variable outside function`` () =
+
+                cypher {
+                    MATCH (Node(node, nodeLabel))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ``Variable passed as function parameter`` () =
+                let f (node : IFSNode) (nodeLabel : NodeLabel) =
+                    cypher {
+                        MATCH (Node(node, nodeLabel))
+                        RETURN ()
+                    }
+
+                f node nodeLabel
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ```For in do statement`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node(node, node.Label))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+        module ``(IFSNode, NodeLabel List)`` =
+        
+            let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
+
+            let rtnSt = sprintf "MATCH (node:%s:%s:%s)" label label label
+        
+            [<Fact>]
+            let ``Create in Node Constructor`` () =
+                cypher {
+                    MATCH (Node(node, [ NodeLabel label; NodeLabel label; NodeLabel label]))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ``Node labels with List.map`` () =
+                cypher {
+                    MATCH (Node(node, List.map NodeLabel [ label; label; label ]))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+            
+            [<Fact>]
+            let ``Let binding and Node labels with List.map`` () =
+                cypher {
+                    let labels = List.map NodeLabel [ label; label; label ]
+                    MATCH (Node(node, labels))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ``Variable outside function`` () =
+
+                cypher {
+                    MATCH (Node(node, nodeLabels))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+            [<Fact>]
+            let ``Variable passed as function parameter`` () =
+                let f (node : IFSNode) (nodeLabels : NodeLabel list) =
+                    cypher {
+                        MATCH (Node(node, nodeLabels))
+                        RETURN ()
+                    }
+
+                f node nodeLabels
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+        
+            [<Fact>]
+            let ``Variable in statement`` () =
+                cypher {
+                    let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
+                    MATCH (Node(node, nodeLabels))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+
+        module ``(IFSNode, IFSNode)`` =
+            
+            let rtnStSingleProp = """MATCH (node { StringValue : "NewStringValue" })"""
+
+            [<Fact>]
+            let ``For in do statement`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node(node, { node with IntValue = 3; FloatValue = 2.0; StringValue = "NewStringValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnStSingleProp, q)
+
+    
+
 // TODO
-// Single - IFSNode
+
+
 // Two - All
 // Three - All
 
@@ -187,7 +364,7 @@ module Relationship =
 
     module ``Single Parameter Constructor`` =
 
-        module ``IRelationship`` =
+        module ``IFSRelationship`` =
 
             let rtnSt = "MATCH [rel]"
             // Quotations can't contain object expressions
@@ -215,7 +392,7 @@ module Relationship =
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
-            let ``Variable in statement`` () =
+            let ``For in do statement`` () =
                 cypher {
                     for rel in Graph.Rel do
                     MATCH (Rel rel)
@@ -347,7 +524,7 @@ module Relationship =
 
     module ``Two Parameter Constructor`` =
 
-        module ``(IRelationship, RelLabel)`` =
+        module ``(IFSRelationship, RelLabel)`` =
         
             let rtnSt = "MATCH [rel:REL_LABEL]"
 
