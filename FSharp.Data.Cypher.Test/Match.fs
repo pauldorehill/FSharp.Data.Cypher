@@ -262,6 +262,26 @@ module Node =
                 }
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnSt, q)
+            
+            [<Fact>]
+            let ``Let bound record call to label member: params in order`` () =
+                cypher {
+                    let node = { StringValue = "NewStringValue"; IntValue = 3; FloatValue = 2.1 }
+                    MATCH (Node(node, node.Label))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
+                
+            [<Fact>]
+            let ``Let bound record call to label member: params reversed`` () =
+                cypher {
+                    let node = { IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }
+                    MATCH (Node(node, node.Label))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(IFSNode, NodeLabel List)`` =
         

@@ -18,7 +18,9 @@ type Query<'T> =
     | NA
 
 type Query =
-    static member IsTypeDefOf (o : obj) = o.GetType().GetGenericTypeDefinition() = typedefof<Query<_>> 
+    static member IsTypeDefOf (o : obj) = 
+        let typ = o.GetType()
+        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Query<_>> 
 
 module private MatchClause =
     
@@ -33,6 +35,9 @@ module private MatchClause =
     let typeofUInt32 = typeof<uint32>
     let typeofUInt32List = typeof<uint32 list>
     
+
+    // I think this needs to be improved... test is failing when calling a propery on a Let object
+    // as the expr is the object...
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
@@ -42,15 +47,26 @@ module private MatchClause =
         | SpecificCall <@ List.map @> (_, _, _)
         | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (Some (Var var), pi, []) ->
+            let expr = varDic.[var.Name]
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-            // In this case the obj is actually NA of the union type Query<'T> = NA
-            // so will need to create an instance of it and call the static member
-            if Query.IsTypeDefOf varObj
-            then 
-                FSharpType.GetRecordFields var.Type
-                |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
-                |> pi.GetValue
-            else varObj
+            // Need to catch case when there is a let binding to create an object,
+            // followed by a call to a property on that object. Need to handle the params
+            // order much like in record creation code
+            let rec inner expr =
+                match expr with
+                | Let (_, _, expr) -> inner expr
+                | NewRecord (_, _) -> pi.GetValue varObj
+                | _ ->
+                    // In this case the obj is actually NA of the union type Query<'T> = NA
+                    // so will need to create an instance of it and call the static member
+                    if Query.IsTypeDefOf varObj
+                    then 
+                        FSharpType.GetRecordFields var.Type
+                        |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
+                        |> pi.GetValue
+                    else varObj
+
+            inner expr
 
         | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
     
