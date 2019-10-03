@@ -76,9 +76,9 @@ type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
 
 module QueryResult =
 
-    let results (cr : QueryResult<'T>) = cr.Results
+    let results (qr : QueryResult<'T>) = qr.Results
 
-    let summary (cr : QueryResult<'T>) = cr.Summary
+    let summary (qr : QueryResult<'T>) = qr.Summary
 
 type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
     member _.Results = results
@@ -102,19 +102,19 @@ type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : 
 
 module TransactionResult =
 
-    let results (cr : TransactionResult<'T>) = cr.Results
+    let results (tr : TransactionResult<'T>) = tr.Results
     
-    let summary (cr : TransactionResult<'T>) = cr.Summary
+    let summary (tr : TransactionResult<'T>) = tr.Summary
     
-    let transaction (cr : TransactionResult<'T>) = cr.Transaction
+    let transaction (tr : TransactionResult<'T>) = tr.Transaction
 
-    let commit (cr : TransactionResult<'T>) = cr.Commit()
+    let commit (tr : TransactionResult<'T>) = tr.Commit()
     
-    let rollback (cr : TransactionResult<'T>) = cr.Rollback()
+    let rollback (tr : TransactionResult<'T>) = tr.Rollback()
 
-    let asyncCommit (cr : TransactionResult<'T>) = cr.AsyncCommit()
+    let asyncCommit (tr : TransactionResult<'T>) = tr.AsyncCommit()
     
-    let asyncRollback (cr : TransactionResult<'T>) = cr.AsyncRollback()
+    let asyncRollback (tr : TransactionResult<'T>) = tr.AsyncRollback()
 
 type CypherStep =
     | NonParameterized of Clause : Clause * Statement : string
@@ -132,6 +132,8 @@ type CypherStep =
    
 module CypherStep =
     
+    // I think need to get away from this, by passing the stepIndex down inthe Query:
+    // can then avoid all the list concats
     let buildQuery (steps : CypherStep list) =
         let mutable prmList = List.Empty
         let makeParms (c : Clause) (stepCount : int) (prms : Choice<string,string -> (string * obj option)> list) =
@@ -150,12 +152,12 @@ module CypherStep =
 
         steps
         |> List.indexed
-        |> List.choose (fun (i, x) -> 
-            match x with
+        |> List.choose (fun (stepIndex, step) -> 
+            match step with
             | NonParameterized (c, s) ->
-                // TODO: This is removing empty statements. Do something better...
-                if s = "" then None else Some(sprintf "%s %s" (string c) s)
-            | Parameterized (c, prms) -> Some(makeParms c i prms))
+                // TODO: This is removing empty statements. Do something better...as this relates to the requirement for RETURN...
+                if s = "" then None else Some (sprintf "%s %s" (string c) s)
+            | Parameterized (c, prms) -> Some (makeParms c stepIndex prms))
         |> fun s -> s, prmList
 
 type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =

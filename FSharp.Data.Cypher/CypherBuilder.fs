@@ -41,7 +41,7 @@ module private MatchClause =
         | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
         | SpecificCall <@ List.map @> (_, _, _)
         | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
-        | PropertyGet (Some(Var var), pi, []) ->
+        | PropertyGet (Some (Var var), pi, []) ->
             let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
             // In this case the obj is actually NA of the union type Query<'T> = NA
             // so will need to create an instance of it and call the static member
@@ -67,7 +67,7 @@ module private MatchClause =
                 QuotationEvaluator.EvaluateUntyped varDic.[v.Name]
                 |> addPrimativeParam
                 |> Some
-            | Value(o, _) -> addPrimativeParam o |> Some
+            | Value (o, _) -> addPrimativeParam o |> Some
             | PropertyGet (Some _, _, _) -> None
             | PropertyGet (None, _, _) -> 
                 QuotationEvaluator.EvaluateUntyped expr
@@ -111,7 +111,7 @@ module private MatchClause =
             | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
                 let startValue = extractObject varDic expr1 :?> uint32//extractValue expr1
                 let endValue = extractObject varDic expr2 :?> uint32//extractValue expr2
-                Some(makeStatement startValue endValue)
+                Some (makeStatement startValue endValue)
  
             | _ -> None
 
@@ -152,7 +152,7 @@ module private MatchClause =
 
         let (|ListCons|_|) (expr : Expr) =
             match expr with
-            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some(makeListFromExpr expr)
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some (makeListFromExpr expr)
             | _ -> None
 
         match expr with
@@ -175,12 +175,12 @@ module private MatchClause =
     
     let (|TwoParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
         match ctrTypes, ctrExpr with
-        | ctr, [ param1; param2 ] when ctr = paramTypes -> Some(param1, param2)
+        | ctr, [ param1; param2 ] when ctr = paramTypes -> Some (param1, param2)
         | _ -> None
     
     let (|ThreeParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
         match ctrTypes, ctrExpr with
-        | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some(param1, param2, param3)
+        | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some (param1, param2, param3)
         | _ -> None
 
     module Rel =
@@ -205,6 +205,8 @@ module private MatchClause =
                 makeRelLabel varDic param1 + makePathHops varDic param2
             | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> 
                 makeRelLabel varDic param1 + makePathHops varDic param2
+            | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
+                makeIFS varDic param1 + makeRelLabel varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
             |> sprintf "[%s]"
 
@@ -233,16 +235,16 @@ module private MatchClause =
             | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> 
                 makeIFS varDic param1 + " " + makeIFS varDic param2
             | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> 
-                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string) + makeIFS varDic param3
+                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string) + " " + makeIFS varDic param3
             | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
-                makeIFS varDic param1 + makeNodeLabelList varDic param2 + makeIFS varDic param3
+                makeIFS varDic param1 + makeNodeLabelList varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
             |> sprintf "(%s)"
     
     let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
         let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
         match expr with
-        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some(fResult (getCtrParamsTypes ci) paramsExpr)
+        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some (fResult (getCtrParamsTypes ci) paramsExpr)
         | _ -> None
 
     let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
@@ -252,7 +254,7 @@ module private MatchClause =
             | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeofNode && ci2.DeclaringType = typeof<Node> -> 
                 if symbol = "<-" then symbol + "-" else "-" + symbol
             | _ -> symbol
-            |> fun s -> Some(fResult left + s + fResult right)
+            |> fun s -> Some (fResult left + s + fResult right)
         | _ -> None
 
     let make (varDic : VarDic) expr =
@@ -260,9 +262,9 @@ module private MatchClause =
             match expr with
             | GetConstructors (Rel.make varDic) typeofRel statement
             | GetConstructors (Node.make varDic) typeofNode statement 
-            | BuildJoin <@ (--) @> "-" inner statement
-            | BuildJoin <@ (-->) @> "->" inner statement 
-            | BuildJoin <@ (<--) @> "<-" inner statement -> statement
+            | BuildJoin <@ ( -- ) @> "-" inner statement
+            | BuildJoin <@ ( --> ) @> "->" inner statement 
+            | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
             | Coerce (expr, _)
             | Let (_, _, expr)
             | TupleGet (expr, _)
@@ -280,7 +282,7 @@ module private ClauseHelpers =
         match exp with
         | Value (o, typ) -> CypherStep.FixStringParameter(typ, o)
         | Var v -> v.Name
-        | PropertyGet (Some(Var v), pi, _) -> makePropertyKey v pi
+        | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
         | PropertyGet (None, pi, _) -> pi.Name
         | _ ->
             exp
@@ -288,6 +290,10 @@ module private ClauseHelpers =
             |> invalidOp
 
 module private WhereAndSetStatement =
+
+    // this is how I was keying the params: need to pass down the step number, and then the param no in the step
+    //  let s = "step" + string (stepCount + 1) + "param" + string pCount
+    // Currently there are 1 based
 
     let [<Literal>] private IFSEntity = "IFSEntity"
 
@@ -309,7 +315,7 @@ module private WhereAndSetStatement =
         let (|Operator|_|) opExpr opSymbol fExpr expr =
             match expr with
             | SpecificCall opExpr (_, _, [ left; right ]) -> 
-                Some(fExpr left @ [ Choice1Of2(sprintf " %s " opSymbol) ] @ fExpr right)
+                Some (fExpr left @ [ Choice1Of2(sprintf " %s " opSymbol) ] @ fExpr right)
             | _ -> None
 
         let rec inner (e : Expr) =
@@ -333,12 +339,12 @@ module private WhereAndSetStatement =
             | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ] 
             //| ValueWithName (o, typ, _) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ]
             | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ] // Also matches ValueWithName
-            | PropertyGet (Some(PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
+            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
             | PropertyGet (None, pi, _) -> 
                 if Deserialization.hasInterface pi.PropertyType IFSEntity 
                 then [ addSerializedParam e ] 
-                else  [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ] //[ Choice1Of2 pi.Name ]
+                else  [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ]
             | Var v -> [ Choice1Of2 v.Name ]
             | Let (_, _, expr)
             | Lambda (_, expr) -> inner expr
@@ -364,13 +370,8 @@ module private ReturnClause =
             let key = CypherStep.FixStringParameter(typ, o)
             let o = Deserialization.fixTypes key typ di.[key]
             Expr.Value(o, typ)
-
-        | Var v -> 
-            // Need to give the compiler some type info for final cast - so return as a value
-            // This may be a bit of a hack, but it works!
-            Expr.Value(makeNewType v.Name v.Type di, v.Type)
-
-        | PropertyGet (Some(Var v), pi, _) ->
+        | Var v -> Expr.Value(makeNewType v.Name v.Type di, v.Type)
+        | PropertyGet (Some (Var v), pi, _) ->
             let key = makePropertyKey v pi
             let o = Deserialization.fixTypes pi.Name pi.PropertyType di.[key]
             Expr.Value(o, pi.PropertyType)
@@ -384,11 +385,12 @@ module private ReturnClause =
     let make<'T> (expr : Expr) =
         let rec inner (expr : Expr) =
             match expr with
-            | Value _ | Var _ | PropertyGet _ ->
+            | Value _ 
+            | Var _ 
+            | PropertyGet _ ->
                 let statement = extractStatement expr
                 let continuation di = extractValue di expr
                 statement, continuation
-
             | NewTuple exprs ->
                 let statement = 
                     exprs
@@ -527,7 +529,7 @@ module CypherBuilder =
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let statement = MatchClause.make varDic thisStep
                     let newState = NonParameterized (clause, statement) :: state
-                    Some(fExpr newState stepAbove)
+                    Some (fExpr newState stepAbove)
                 | _ -> None
             
             let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
@@ -535,7 +537,7 @@ module CypherBuilder =
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let statement = WhereAndSetStatement.make thisStep
                     let newState = Parameterized(clause, statement) :: state
-                    Some(fExpr newState stepAbove)
+                    Some (fExpr newState stepAbove)
                 | _ -> None
             
             let mutable returnStatement : ReturnContination<'T> = NoReturnClause
@@ -546,7 +548,7 @@ module CypherBuilder =
                     let (statement, continuation) = ReturnClause.make<'T> thisStep
                     let newState = NonParameterized(clause, statement) :: state
                     returnStatement <- returnStatement.Update continuation
-                    Some(fExpr newState stepAbove)
+                    Some (fExpr newState stepAbove)
                 | _ -> None
             
             let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
@@ -554,7 +556,7 @@ module CypherBuilder =
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     let statement = BasicClause.make thisStep
                     let newState = NonParameterized(clause, statement) :: state
-                    Some(fExpr newState stepAbove)
+                    Some (fExpr newState stepAbove)
                 | _ -> None
 
             let buildQry (expr : Expr<Query<'T>>) =

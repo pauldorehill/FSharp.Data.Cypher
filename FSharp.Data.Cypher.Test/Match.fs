@@ -5,6 +5,9 @@ open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
 open Xunit
 
+// TODO: Remove all the 2 / 3 param cntr tests other than a single test:
+// this is because there is full coverage of the indivual components in the single param ctrs
+// so simple need to test the final output works
 
 module Node =
 
@@ -340,7 +343,35 @@ module Node =
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
             
-// Three - All
+    module ``Three Parameter Constructor`` =
+            
+        module ``(IFSNode, NodeLabel, IFSNode)`` =
+            
+            let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+
+            [<Fact>]
+            let ``Can make`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node(node, nodeLabel ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnStSingleProp, q)
+        
+        module ``(IFSNode, NodeLabel List, IFSNode)`` =
+            
+            let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+
+            [<Fact>]
+            let ``Can make`` () =
+                cypher {
+                    for node in Graph.NodeOfType do
+                    MATCH (Node(node, nodeLabels ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal(rtnStSingleProp, q)
 
 module Relationship =
     
@@ -412,6 +443,16 @@ module Relationship =
                 }
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnSt, q)
+            
+            [<Fact>]
+            let ``Record update syntax for param matching`` () =
+                cypher {
+                    for rel in Graph.RelOfType do
+                    MATCH (Rel({ rel with Value = "NewValue" }))
+                    RETURN ()
+                }
+                |> Cypher.queryNonParameterized
+                |> fun q -> Assert.Equal("""MATCH [{Value: "NewValue"}]""", q)
 
         module ``RelLabel`` =
             
@@ -669,6 +710,18 @@ module Relationship =
                 f relLabel [ 0u .. 3u ] 
                 |> Cypher.queryNonParameterized
                 |> fun q -> Assert.Equal(rtnSt, q)
+
+    module ``Three Parameter Constructor`` =
+        
+        [<Fact>]
+        let ``Can make`` () =
+            cypher {
+                for rel in Graph.RelOfType do
+                MATCH (Rel(rel, rel.Label, { rel with Value = "NewValue" }))
+                RETURN ()
+            }
+            |> Cypher.queryNonParameterized
+            |> fun q -> Assert.Equal("""MATCH [rel:REL_LABEL {Value: "NewValue"}]""", q)
 
     module ``RelLabel Combination Operator`` =
         

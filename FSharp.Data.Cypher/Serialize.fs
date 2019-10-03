@@ -62,11 +62,11 @@ module Deserialization =
         elif localType = typeof<float seq> then makeSeq<float> rtnObj |> box
         elif localType = typeof<bool seq> then makeSeq<bool> rtnObj |> box
             
-        elif localType = typeof<string array> then makeArray<string> rtnObj |> box
-        elif localType = typeof<int64 array> then makeArray<int64> rtnObj |> box
-        elif localType = typeof<int32 array> then makeArray<int64> rtnObj |> Array.map Convert.ToInt32 |> box
-        elif localType = typeof<float array> then makeArray<float> rtnObj |> box
-        elif localType = typeof<bool array> then makeArray<bool> rtnObj |> box
+        elif localType = typeof<string []> then makeArray<string> rtnObj |> box
+        elif localType = typeof<int64 []> then makeArray<int64> rtnObj |> box
+        elif localType = typeof<int32 []> then makeArray<int64> rtnObj |> Array.map Convert.ToInt32 |> box
+        elif localType = typeof<float []> then makeArray<float> rtnObj |> box
+        elif localType = typeof<bool []> then makeArray<bool> rtnObj |> box
             
         elif localType = typeof<string list> then makeList<string> rtnObj |> box
         elif localType = typeof<int64 list> then makeList<int64> rtnObj |> box
@@ -162,6 +162,7 @@ module Serialization =
     // TODO : 
     // Add in options and seq
     // make a single type check for both serializer and de, passing in the functions
+    // Option is used here to avoid null - the null is inserted when sending off the final query
     let fixTypes typ (o : obj) =
 
         if typ = typeof<string> then Some o
@@ -182,11 +183,11 @@ module Serialization =
         elif typ = typeof<float seq> then checkCollection<float> o
         elif typ = typeof<bool seq> then checkCollection<bool> o
             
-        elif typ = typeof<string array> then checkCollection<string> o
-        elif typ = typeof<int64 array> then checkCollection<int64> o
-        elif typ = typeof<int32 array> then checkCollection<int32> o
-        elif typ = typeof<float array> then checkCollection<float> o
-        elif typ = typeof<bool array> then checkCollection<bool> o
+        elif typ = typeof<string []> then checkCollection<string> o
+        elif typ = typeof<int64 []> then checkCollection<int64> o
+        elif typ = typeof<int32 []> then checkCollection<int32> o
+        elif typ = typeof<float []> then checkCollection<float> o
+        elif typ = typeof<bool []> then checkCollection<bool> o
             
         elif typ = typeof<string list> then checkCollection<string> o
         elif typ = typeof<int64 list> then checkCollection<int64> o
@@ -211,7 +212,7 @@ module Serialization =
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
             match fixTypes pi.PropertyType (pi.GetValue e) with
-            | Some o -> Some(pi.Name , o)
+            | Some o -> Some (pi.Name , o)
             | None -> None)
         |> Map.ofArray
         |> Generic.Dictionary

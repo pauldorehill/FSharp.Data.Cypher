@@ -53,7 +53,8 @@ type Rel() =
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
     new (pathHopsRange : uint32 list) = Rel()
 
-    /// Match a Relationship with the label and bind it to the variable name. The (/) operator can be used to specify multiple relationships
+    /// Match a Relationship with the label and bind it to the variable name. 
+    /// The (/) operator can be used to specify multiple relationships
     new (relationship : IFSRelationship, label : RelLabel) = Rel()
     
     /// Match a Relationship with the label and a path length 
@@ -63,6 +64,10 @@ type Rel() =
     /// It will use the minimum & max value in the list. 
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
     new (label : RelLabel, pathHopsRange : uint32 list) = Rel()
+
+    /// Match a Relationship with the label and properties and bind it to the variable name. 
+    /// The (/) operator can be used to specify multiple relationships
+    new (relationship : IFSRelationship, label : RelLabel, relationshipWithProperties : IFSRelationship) = Rel()
 
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
@@ -96,15 +101,15 @@ type Node() =
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
     new (node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
-    static member (--) (n1 : Node, n2 : Node) = n2
-    static member (--) (n : Node, r : Rel) = r
-    static member (--) (r : Rel, n : Node) = n
-    static member (-->) (node1 : Node, node2 : Node) = node2
-    static member (-->) (n : Node, r : Rel) = r
-    static member (-->) (r : Rel, n : Node) = n
-    static member (<--) (n1 : Node, n2 : Node) = n1
-    static member (<--) (n : Node, r : Rel) = n
-    static member (<--) (r : Rel, n : Node) = r
+    static member ( -- ) (n1 : Node, n2 : Node) = n2
+    static member ( -- ) (n : Node, r : Rel) = r
+    static member ( -- ) (r : Rel, n : Node) = n
+    static member ( --> ) (node1 : Node, node2 : Node) = node2
+    static member ( --> ) (n : Node, r : Rel) = r
+    static member ( --> ) (r : Rel, n : Node) = n
+    static member ( <-- ) (n1 : Node, n2 : Node) = n1
+    static member ( <-- ) (n : Node, r : Rel) = n
+    static member ( <-- ) (r : Rel, n : Node) = r
 
 [<AutoOpen>]
 module Ascii =
@@ -112,8 +117,8 @@ module Ascii =
     // Quotations cannot contain expressions that make member constraint calls, 
     // or uses of operators that implicitly resolve to a member constraint call
 
-    let inline (--) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
+    let inline ( -- ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
     
-    let inline (-->) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
+    let inline ( --> ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
     
-    let inline (<--) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity
+    let inline ( <-- ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity
