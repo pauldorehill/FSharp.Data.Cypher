@@ -471,55 +471,57 @@ module CypherBuilder =
     type CypherBuilder() =
         
         // Need to define a yield method. It is used rather than zero in case there are variables in scope
-        member _.Yield(source : 'T) : Query<'T> = NA
+        member _.Yield (source : 'T) : Query<'T> = NA
 
         // f needs a different type 'R to allow multiple for in do loops
-        member _.For(source : Query<'T>, f : 'T -> Query<'R>) : Query<'R> = NA 
+        member _.For (source : Query<'T>, f : 'T -> Query<'R>) : Query<'R> = NA 
         
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member _.MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.MATCH (source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member _.OPTIONAL_MATCH(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.OPTIONAL_MATCH (source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member _.CREATE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.CREATE (source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member _.MERGE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
+        member _.MERGE (source : Query<'T>, [<ProjectionParameter>] f : 'T -> #IFSEntity) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
-        member _.WHERE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member _.WHERE (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
-        member _.SET(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
+        member _.SET (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'T> = NA
 
         [<CustomOperation(ClauseNames.RETURN, MaintainsVariableSpace = true)>]
-        member _.RETURN(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.RETURN (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
-        member _.RETURN_DISTINCT(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.RETURN_DISTINCT (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
-        member _.DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.DELETE (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
         [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
-        member _.DETACH_DELETE(source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
+        member _.DETACH_DELETE (source : Query<'T>, [<ProjectionParameter>] f : 'T -> 'R) : Query<'R> = NA
         
-        // Can't get this to work with intellisense
-        // Might need to change the type to have 2 x generics so can carry the final type
+        // TODO: Can't get the intellisense here by adding in the types as it causes some issues
         [<CustomOperation(ClauseNames.ORDER_BY, MaintainsVariableSpace = true)>]
-        member _.ORDER_BY(source : Query<'T>, [<ProjectionParameter>] f) : Query<'T> = NA
+        member _.ORDER_BY (source : Query<'T>, [<ProjectionParameter>] f) : Query<'T> = NA
+        
+        [<CustomOperation(ClauseNames.DESC, MaintainsVariableSpace = true)>]
+        member _.DESC (source : Query<'T>) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.SKIP, MaintainsVariableSpace = true)>]
-        member _.SKIP(source : Query<'T>, f : int64) : Query<'T> = NA
+        member _.SKIP (source : Query<'T>, f : int64) : Query<'T> = NA
         
         [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
-        member _.LIMIT(source : Query<'T>, f : int64) : Query<'T> = NA
+        member _.LIMIT (source : Query<'T>, f : int64) : Query<'T> = NA
 
-        member _.Quote(query : Expr<Query<'T>>) = NA
+        member _.Quote (query : Expr<Query<'T>>) = NA
 
-        member cypher.Run(expr : Expr<Query<'T>>) = 
+        member cypher.Run (expr : Expr<Query<'T>>) = 
             // TODO: This is a bit rough and ready
             let varDic =
                 let mutable varExp = None
@@ -553,7 +555,7 @@ module CypherBuilder =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let statement = WhereAndSetStatement.make thisStep
-                    let newState = Parameterized(clause, statement) :: state
+                    let newState = Parameterized (clause, statement) :: state
                     Some (fExpr newState stepAbove)
                 | _ -> None
             
@@ -563,7 +565,7 @@ module CypherBuilder =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     let (statement, continuation) = ReturnClause.make<'T> thisStep
-                    let newState = NonParameterized(clause, statement) :: state
+                    let newState = NonParameterized (clause, statement) :: state
                     returnStatement <- returnStatement.Update continuation
                     Some (fExpr newState stepAbove)
                 | _ -> None
@@ -572,7 +574,14 @@ module CypherBuilder =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     let statement = BasicClause.make thisStep
-                    let newState = NonParameterized(clause, statement) :: state
+                    let newState = NonParameterized (clause, statement) :: state
+                    Some (fExpr newState stepAbove)
+                | _ -> None
+            
+            let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove ]) -> 
+                    let newState = ClauseOnly clause :: state
                     Some (fExpr newState stepAbove)
                 | _ -> None
 
@@ -594,6 +603,7 @@ module CypherBuilder =
                     | Basic <@ cypher.DELETE @> DELETE state inner stepList
                     | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state inner stepList
                     | Basic <@ cypher.ORDER_BY @> ORDER_BY state inner stepList
+                    | NoStatement <@ cypher.DESC @> DESC state inner stepList
                     | Basic <@ cypher.SKIP @> SKIP state inner stepList
                     | Basic <@ cypher.LIMIT @> LIMIT state inner stepList
                     | Basic <@ cypher.DELETE @> DELETE state inner stepList -> stepList

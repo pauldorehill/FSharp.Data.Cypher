@@ -16,6 +16,7 @@ module ClauseNames =
     let [<Literal>] RETURN = "RETURN"
     let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
     let [<Literal>] ORDER_BY = "ORDER_BY"
+    let [<Literal>] DESC = "DESC"
     let [<Literal>] SKIP = "SKIP"
     let [<Literal>] LIMIT = "LIMIT"
     let [<Literal>] DELETE = "DELETE"
@@ -34,6 +35,7 @@ type Clause =
     | RETURN
     | RETURN_DISTINCT
     | ORDER_BY
+    | DESC
     | SKIP
     | LIMIT
     | DELETE
@@ -51,6 +53,7 @@ type Clause =
         | RETURN -> ClauseNames.RETURN
         | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
         | ORDER_BY -> ClauseNames.ORDER_BY
+        | DESC -> ClauseNames.DESC
         | SKIP -> ClauseNames.SKIP
         | LIMIT -> ClauseNames.LIMIT
         | DELETE -> ClauseNames.DELETE
@@ -62,7 +65,7 @@ type Clause =
         match this with
         | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
         | _ -> false
-    member this.IsRead = not(this.IsWrite)
+    member this.IsRead = not (this.IsWrite)
          
 module Clause =
     
@@ -117,10 +120,12 @@ module TransactionResult =
     let asyncRollback (tr : TransactionResult<'T>) = tr.AsyncRollback()
 
 type CypherStep =
+    | ClauseOnly of Clause : Clause
     | NonParameterized of Clause : Clause * Statement : string
     | Parameterized of Clause : Clause * Statement : Choice<string,string -> (string * obj option)> list
     member this.Clause =
         match this with
+        | ClauseOnly c -> c
         | NonParameterized (c, _) -> c
         | Parameterized (c, _) -> c
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
@@ -157,6 +162,7 @@ module CypherStep =
         |> List.indexed
         |> List.choose (fun (stepIndex, step) -> 
             match step with
+            | ClauseOnly c -> Some (string c)
             | NonParameterized (c, s) ->
                 // TODO: This is removing empty statements. Do something better...as this relates to the requirement for RETURN...
                 if s = "" then None else Some (sprintf "%s %s" (string c) s)
@@ -230,9 +236,9 @@ module Cypher =
 
     let run (driver : IDriver) cypher = runMap driver id cypher
 
-    let asyncRun driver cypher = async { return run driver cypher }
+    let asyncRun driver cypher = async.Return (run driver cypher)
 
-    let asyncRunMap driver map cypher = async { return runMap driver map cypher }
+    let asyncRunMap driver map cypher = async.Return (runMap driver map cypher)
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
@@ -263,6 +269,6 @@ module Cypher =
 
         let run (driver : IDriver) cypher = runMap driver id cypher
 
-        let asyncRun driver cypher = async { return run driver cypher }
+        let asyncRun driver cypher = async.Return (run driver cypher)
 
-        let asyncRunMap driver map cypher = async { return runMap driver map cypher }
+        let asyncRunMap driver map cypher = async.Return (runMap driver map cypher)

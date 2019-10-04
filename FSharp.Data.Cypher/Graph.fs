@@ -31,7 +31,7 @@ type RelLabel(label : string) =
         | s1, s2 -> s1.[1..] + "|" + s2 |> RelLabel
 
     static member (/) (r1 : RelLabel, r2 : RelLabel) = r1 + r2
-    static member get_Zero() = RelLabel "" // here to allow use of sumBy: not sure if I should keep
+    static member get_Zero() = RelLabel "" // TODO: here to allow use of sumBy: not sure if I should keep
     override this.ToString() = this.Value
 
 /// Match any Relationship
