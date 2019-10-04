@@ -79,6 +79,8 @@ module Deserialization =
         elif localType = typeof<int32 Set> then makeSet<int64> rtnObj |> Set.map Convert.ToInt32 |> box
         elif localType = typeof<float Set> then makeSet<float> rtnObj |> box
         elif localType = typeof<bool Set> then makeSet<bool> rtnObj |> box
+        // Here for when RETURN () -> that becomes RETURN null
+        elif localType = typeof<unit> then box ()
 
         else 
             localType
@@ -163,8 +165,8 @@ module Serialization =
     // Add in options and seq
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
-    let fixTypes typ (o : obj) =
-
+    let fixTypes (o : obj) =
+        let typ = o.GetType()
         if typ = typeof<string> then Some o
         elif typ = typeof<int64> then Some o
         elif typ = typeof<int32> then Some o //:?> int32 |> int64 |> box
@@ -211,7 +213,7 @@ module Serialization =
         typ
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
-            match fixTypes pi.PropertyType (pi.GetValue e) with
+            match fixTypes (pi.GetValue e) with
             | Some o -> Some (pi.Name , o)
             | None -> None)
         |> Map.ofArray

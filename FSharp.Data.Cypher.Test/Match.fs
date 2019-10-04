@@ -33,7 +33,7 @@ module Node =
 
     module ``Empty Constructor`` =
         
-        let rtnSt = sprintf "MATCH %s"
+        let rtnSt = sprintf "MATCH %s RETURN null"
 
         [<Fact>]
         let ``Single Node`` () =
@@ -79,7 +79,7 @@ module Node =
 
         module ``NodeLabel`` =
 
-            let rtnSt = sprintf "MATCH (:%s)" label
+            let rtnSt = sprintf "MATCH (:%s) RETURN null" label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
@@ -125,7 +125,7 @@ module Node =
         module ``NodeLabel list`` =
         
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
-            let rtnSt = sprintf "MATCH (:%s:%s:%s)" label label label
+            let rtnSt = sprintf "MATCH (:%s:%s:%s) RETURN null" label label label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
@@ -170,7 +170,7 @@ module Node =
 
         module ``IFSNode`` =
 
-            let rtnSt = "MATCH (node)"
+            let rtnSt = "MATCH (node) RETURN null"
             // Quotations can't contain object expressions
             // so use a graph for binding test
 
@@ -213,7 +213,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})""", q)
+                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null""", q)
             
             [<Fact>]
             let ``New Record`` () =
@@ -223,13 +223,13 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})""", q)
+                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null""", q)
 
     module ``Two Parameter Constructor`` =
 
         module ``(IFSNode, NodeLabel)`` =
         
-            let rtnSt = "MATCH (node:NodeLabel)"
+            let rtnSt = "MATCH (node:NodeLabel) RETURN null"
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -287,7 +287,7 @@ module Node =
         
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
 
-            let rtnSt = sprintf "MATCH (node:%s:%s:%s)" label label label
+            let rtnSt = sprintf "MATCH (node:%s:%s:%s) RETURN null" label label label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
@@ -351,7 +351,7 @@ module Node =
 
         module ``(IFSNode, IFSNode)`` =
             
-            let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+            let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
             [<Fact>]
             let ``Record update syntax for param matching`` () =
@@ -367,7 +367,7 @@ module Node =
             
         module ``(IFSNode, NodeLabel, IFSNode)`` =
             
-            let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+            let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
             [<Fact>]
             let ``Can make`` () =
@@ -381,7 +381,7 @@ module Node =
         
         module ``(IFSNode, NodeLabel List, IFSNode)`` =
             
-            let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+            let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
             [<Fact>]
             let ``Can make`` () =
@@ -423,13 +423,13 @@ module Relationship =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal("MATCH []", q)
+            |> fun q -> Assert.Equal("MATCH [] RETURN null", q)
 
     module ``Single Parameter Constructor`` =
 
         module ``IFSRelationship`` =
 
-            let rtnSt = "MATCH [rel]"
+            let rtnSt = "MATCH [rel] RETURN null"
             // Quotations can't contain object expressions
             // so use a graph for binding test
 
@@ -472,11 +472,11 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("""MATCH [{Value: "NewValue"}]""", q)
+                |> fun q -> Assert.Equal("""MATCH [{Value: "NewValue"}] RETURN null""", q)
 
         module ``RelLabel`` =
             
-            let rtnSt = sprintf "MATCH [:%s]" label
+            let rtnSt = sprintf "MATCH [:%s] RETURN null" label
 
             [<Fact>]
             let ``Create in Rel Constructor`` () =
@@ -547,7 +547,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*3]", q)
+                |> fun q -> Assert.Equal("MATCH [*3] RETURN null", q)
             
             [<Fact>]
             let ``Fixed no of path hops on static member`` () =
@@ -556,7 +556,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*0..3]", q)
+                |> fun q -> Assert.Equal("MATCH [*0..3] RETURN null", q)
             
             [<Fact>]
             let ``Fixed no of path hops on for in`` () =
@@ -566,7 +566,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*3]", q)
+                |> fun q -> Assert.Equal("MATCH [*3] RETURN null", q)
             
             [<Fact>]
             let ``Range of path hops`` () =
@@ -575,7 +575,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*1..3]", q)
+                |> fun q -> Assert.Equal("MATCH [*1..3] RETURN null", q)
             
             [<Fact>]
             let ``Range of path hops: Max path hops`` () =
@@ -584,7 +584,7 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*0..]", q)
+                |> fun q -> Assert.Equal("MATCH [*0..] RETURN null", q)
             
             [<Fact>]
             let ``List literal`` () =
@@ -593,13 +593,13 @@ module Relationship =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("MATCH [*0..7]", q)
+                |> fun q -> Assert.Equal("MATCH [*0..7] RETURN null", q)
 
     module ``Two Parameter Constructor`` =
 
         module ``(IFSRelationship, RelLabel)`` =
         
-            let rtnSt = "MATCH [rel:REL_LABEL]"
+            let rtnSt = "MATCH [rel:REL_LABEL] RETURN null"
 
             [<Fact>]
             let ``Variable outside function`` () =
@@ -635,7 +635,7 @@ module Relationship =
 
         module ``(RelLabel, uint32)`` =
         
-            let rtnSt = "MATCH [:REL_LABEL*3]"
+            let rtnSt = "MATCH [:REL_LABEL*3] RETURN null"
             let i = 3u
 
             [<Fact>]
@@ -673,7 +673,7 @@ module Relationship =
         
         module ``(RelLabel, uint32 list)`` =
         
-            let rtnSt = "MATCH [:REL_LABEL*0..3]"
+            let rtnSt = "MATCH [:REL_LABEL*0..3] RETURN null"
             let i0 = 0u
             let i3 = 3u
 
@@ -741,13 +741,13 @@ module Relationship =
                 RETURN ()
             }
             |> Cypher.queryNonParameterized
-            |> fun q -> Assert.Equal("""MATCH [rel:REL_LABEL {Value: "NewValue"}]""", q)
+            |> fun q -> Assert.Equal("""MATCH [rel:REL_LABEL {Value: "NewValue"}] RETURN null""", q)
 
     module ``RelLabel Combination Operator`` =
         
         let label = "REL_LABEL"
         let relLabel = RelLabel label / RelLabel label / RelLabel label
-        let rtnSt = sprintf "MATCH [:%s|:%s|:%s]" label label label
+        let rtnSt = sprintf "MATCH [:%s|:%s|:%s] RETURN null" label label label
         
         [<Fact>]
         let ``Create in Rel Constructor`` () =

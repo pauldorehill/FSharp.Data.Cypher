@@ -35,9 +35,6 @@ module private MatchClause =
     let typeofUInt32 = typeof<uint32>
     let typeofUInt32List = typeof<uint32 list>
     
-
-    // I think this needs to be improved... test is failing when calling a propery on a Let object
-    // as the expr is the object...
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
@@ -72,10 +69,10 @@ module private MatchClause =
     
     // TODO : Need to now parameterize the values
     let makeRecord (varDic : VarDic) typeOfRec (exprs : Expr list) =
-        let addPrimativeParam o = 
+        let addPrimativeParam (o : obj) = 
             fun fieldName key -> 
-                //fieldName + ": " + key, Serialization.fixTypes (o.GetType()) o
-                fieldName + ": " + CypherStep.FixStringParameter(o.GetType(), o)
+                //fieldName + ": " + key, Serialization.fixTypes o
+                fieldName + ": " + CypherStep.FixStringParameter(o)
 
         let getValues expr =
             match expr with
@@ -89,6 +86,11 @@ module private MatchClause =
                 QuotationEvaluator.EvaluateUntyped expr
                 |> addPrimativeParam
                 |> Some
+            | NewUnionCase (ui, _) when Deserialization.isOption ui.DeclaringType ->
+                QuotationEvaluator.EvaluateUntyped expr
+                |> addPrimativeParam
+                |> Some
+
             | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
 
         let fieldValues = List.map getValues exprs
@@ -125,8 +127,8 @@ module private MatchClause =
         let (|GetRange|_|) (expr : Expr) =
             match expr with
             | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
-                let startValue = extractObject varDic expr1 :?> uint32//extractValue expr1
-                let endValue = extractObject varDic expr2 :?> uint32//extractValue expr2
+                let startValue = extractObject varDic expr1 :?> uint32
+                let endValue = extractObject varDic expr2 :?> uint32
                 Some (makeStatement startValue endValue)
  
             | _ -> None
@@ -296,7 +298,7 @@ module private ClauseHelpers =
 
     let extractStatement (exp : Expr) =
         match exp with
-        | Value (o, typ) -> CypherStep.FixStringParameter(typ, o)
+        | Value (o, typ) -> CypherStep.FixStringParameter o
         | Var v -> v.Name
         | PropertyGet (Some (Var v), pi, _) -> makePropertyKey v pi
         | PropertyGet (None, pi, _) -> pi.Name
@@ -316,7 +318,7 @@ module private WhereAndSetStatement =
     let make (e : Expr) =
        
         let addPrimativeParam o =
-            fun (key : string) -> key, Serialization.fixTypes (o.GetType()) o
+            fun (key : string) -> key, Serialization.fixTypes o
             |> Choice2Of2
         
         let addSerializedParam expr =
@@ -353,7 +355,6 @@ module private WhereAndSetStatement =
             | NewUnionCase (ui, [singleCase]) -> inner singleCase
             | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ]
             | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ] 
-            //| ValueWithName (o, typ, _) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ]
             | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ] // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
@@ -383,7 +384,7 @@ module private ReturnClause =
     let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (exp : Expr) =
         match exp with
         | Value (o, typ) ->
-            let key = CypherStep.FixStringParameter(typ, o)
+            let key = CypherStep.FixStringParameter o
             let o = Deserialization.fixTypes key typ di.[key]
             Expr.Value(o, typ)
         | Var v -> Expr.Value(makeNewType v.Name v.Type di, v.Type)

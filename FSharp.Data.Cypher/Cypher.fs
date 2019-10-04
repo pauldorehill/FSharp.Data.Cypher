@@ -124,10 +124,13 @@ type CypherStep =
         | NonParameterized (c, _) -> c
         | Parameterized (c, _) -> c
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
-    static member FixStringParameter (typ : Type, o : obj) = 
-        if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter
-        elif typ = typeof<bool> then (o :?> bool).ToString().ToLower()
-        else string o
+    static member FixStringParameter (o : obj) = 
+        if isNull o then "null"
+        else
+            let typ = o.GetType()
+            if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter
+            elif typ = typeof<bool> then (o :?> bool).ToString().ToLower()
+            else string o
      static member Paramkey = "$"
    
 module CypherStep =
@@ -184,7 +187,7 @@ type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDi
                         |> sprintf "[ %s ]"
                     | :? Generic.Dictionary<string, obj> as d ->
                         d 
-                        |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter(kv.Value.GetType(), kv.Value))
+                        |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter kv.Value)
                         |> String.concat ", "
                         |> sprintf "{ %s }"
                     | _ -> string o
@@ -214,7 +217,9 @@ module Cypher =
                 sr 
                 |> Seq.toArray 
                 |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+            
             QueryResult(results, sr.Summary)
+
         finally
             session.CloseAsync()
             |> Async.AwaitTask
@@ -243,6 +248,7 @@ module Cypher =
                 sr 
                 |> Seq.toArray 
                 |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+            
             TransactionResult(results, sr.Summary, session, transaction)
         
         let runMap (driver : IDriver) map (cypher : Cypher<'T>) =
