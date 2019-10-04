@@ -2,7 +2,6 @@
 
 open System
 open FSharp.Data.Cypher
-open FSharp.Data.Cypher.Test
 open Xunit
 
 // TODO: Remove all the 2 / 3 param cntr tests other than a single test:

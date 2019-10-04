@@ -8,7 +8,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="Setup.fs" />
     <Compile Include="Match.fs" />
     <Compile Include="Return.fs" />
     <Compile Include="MovieGraph.fs" />
