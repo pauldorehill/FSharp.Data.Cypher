@@ -3,8 +3,11 @@
 open FSharp.Data.Cypher
 open Neo4j.Driver.V1
 open System.Collections
-open Xunit
-    
+
+type LocalGraph =
+    // Need to have a Neo4j instance running with Auth disabled
+    static member Driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None)
+
 type AllAllowed =
     { string : string
       stringOption : string option 
@@ -41,12 +44,6 @@ type AllAllowed =
       boolArray : bool array 
       boolSet : bool Set }
     interface IFSNode
-
-module Graph =  
-    
-    // Need to have a Neo4j instance running with Auth disabled
-    let uri = "bolt://localhost:7687"
-    let driver = GraphDatabase.Driver(uri, AuthTokens.None)
 
 module ``All Allowed`` =
 
@@ -131,44 +128,3 @@ module ``All Allowed`` =
           "boolArray", box false
           "boolSet", box false ]
         |> makeToReturnType
-
-
-module ``Movie Graph As Records`` =
-    
-    type LotsOfLabels() =
-        interface IFSNode
-        member _.Labels = [ "Label1"; "Label2"; "Label3"; "Label4"] |> List.map NodeLabel
-    
-    type LabelWithSpace() =
-        interface IFSNode
-        member _.Labels = NodeLabel "Label with spaces"
-
-    type Movie =
-        { title : string
-          tagline : string option
-          released : int }
-        interface IFSNode
-        member _.Label = NodeLabel "Movie"
-    
-    type Person =
-        { born : int
-          name : string }
-        interface IFSNode
-        member _.Labels = NodeLabel "Person"
-      
-    type ActedIn =
-        { roles : string list }
-        interface IFSRelationship
-        member _.Label = RelLabel "ACTED_IN"
-    
-    type Directed() =
-        interface IFSRelationship
-        member _.Label = RelLabel "DIRECTED"
-    
-    type Graph =
-        static member Movie : Query<Movie> = NA
-        static member ActedIn : Query<ActedIn> = NA
-        static member Directed : Query<Directed> = NA
-        static member Person : Query<Person> = NA
-        static member LotsOfLabels : Query<LotsOfLabels> = NA
-        static member LabelWithSpace : Query<LabelWithSpace> = NA

@@ -135,7 +135,7 @@ module ``Deserialize`` =
         module ``Live Graph Results`` =
 
             let f x =
-                Cypher.run Graph.driver x
+                Cypher.run LocalGraph.Driver x
                 |> QueryResult.results
                 |> Seq.head
         

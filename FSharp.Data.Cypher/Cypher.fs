@@ -243,6 +243,8 @@ module Cypher =
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
     let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
+    
+    let query (cypher : Cypher<'T>) = cypher.Query
 
     /// Returns a TransactionResult - where the transation needs to be commited to the database or rolled back manually
     module Explicit =

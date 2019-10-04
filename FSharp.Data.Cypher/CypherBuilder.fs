@@ -58,8 +58,7 @@ module private MatchClause =
                     // so will need to create an instance of it and call the static member
                     if Query.IsTypeDefOf varObj
                     then 
-                        FSharpType.GetRecordFields var.Type
-                        |> fun obs -> FSharpValue.MakeRecord(var.Type, Array.zeroCreate obs.Length)
+                        Deserialization.createNullRecordOrClass var.Type
                         |> pi.GetValue
                     else varObj
 

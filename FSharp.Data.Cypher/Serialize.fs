@@ -86,37 +86,11 @@ module Deserialization =
             localType
             |> sprintf "Unsupported property/value: %s. Type: %A" name
             |> invalidOp
-    
-    // TODO: Class serialization is tricky due to the order that the values have to be passed
-    // into the constructure doesn't match the decleration order on the class
-    // also if there is a const member this.V = "Value" that is impossible to filter out with BindingFlags
-    // will need to revisit how handle classes - currently just parameterless for now to allow
-    // for relationships with no properties
-    
-    let getProperties (typ : Type) =
-        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
-        else typ.GetProperties bindingFlags
 
-    let deserialize (typ : Type) (entity : IEntity) =
-        typ
-        |> getProperties 
-        |> Array.map (fun pi ->
-            match entity.Properties.TryGetValue pi.Name with
-            | true, v -> fixTypes pi.Name pi.PropertyType v
-            | _ ->
-                if isOption pi.PropertyType then box None 
-                else 
-                    pi.Name
-                    |> sprintf "Could not deserialize IEntity from the graph. The required property was not found: %s"
-                    |> invalidOp)
-
-    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
-    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     let createRecordOrClass (typ : Type) (obs : obj []) =
         if FSharpType.IsRecord typ then FSharpValue.MakeRecord(typ, obs)
         elif typ.IsClass then
-            if Array.isEmpty obs then Activator.CreateInstance typ
+            if Array.isEmpty obs || obs.Length = 1 then Activator.CreateInstance typ
             else invalidOp "Only parameterless classes are supported"
         else invalidOp "Type was not a class or a record."
 
@@ -129,7 +103,7 @@ module Deserialization =
             let ctrs = typ.GetConstructors()
             if ctrs.Length = 0 then 
                 (typ.Name, typ.Name)
-                ||> sprintf "Class of Type: %s needs a parameterless constructor. eg. type %s () ="
+                ||> sprintf "Class of Type: %s is static. It needs a parameterless constructor. eg. type %s () ="
                 |> invalidOp 
 
             elif ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty) 
@@ -143,6 +117,43 @@ module Deserialization =
             typ.Name
             |> sprintf "Type %s was not a F# record or class"
             |> invalidOp 
+    let getProperties (typ : Type) =
+        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
+        else typ.GetProperties bindingFlags
+
+    // TODO: Class serialization is tricky due to the order that the values have to be passed
+    // into the constructor doesn't match the decleration order on the class
+    // also if there is a const member this.V = "Value" that is impossible to filter out with BindingFlags
+    // will need to revisit how handle classes - currently just parameterless for now to allow
+    // for relationships with no properties
+    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
+    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
+    // Or use of quotations as an equvialent
+    let deserialize (typ : Type) (entity : IEntity) =
+        let mutable typeInstance = None
+        
+        let makeTypeInstance () = 
+            typeInstance <- Some (createNullRecordOrClass typ)
+
+        let makeObj (pi : PropertyInfo) =
+            match entity.Properties.TryGetValue pi.Name with
+            | true, v -> fixTypes pi.Name pi.PropertyType v
+            | _ ->
+                if isOption pi.PropertyType then box None
+                elif true then
+                    if typeInstance.IsNone then makeTypeInstance ()
+                    // Try and find members that take no parameters
+                    pi.GetValue typeInstance.Value
+                    
+                else
+                    sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
+                    |> invalidOp
+
+        typ
+        |> getProperties 
+        |> Array.map makeObj
+
 
 module Serialization =  
 
