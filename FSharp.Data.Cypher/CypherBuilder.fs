@@ -3,14 +3,12 @@
 open System
 open System.Reflection
 open System.Collections
-open FSharp.Reflection
 open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
 open FSharp.Quotations.Evaluator
 open Neo4j.Driver.V1
-open FSharp.Data.Cypher
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
@@ -67,7 +65,8 @@ module private MatchClause =
         | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
     
     // TODO : Need to now parameterize the values
-    let makeRecord (varDic : VarDic) typeOfRec (exprs : Expr list) =
+    let makeRecordOrClass (varDic : VarDic) typ (exprs : Expr list) =
+        printfn "%A" exprs
         let addPrimativeParam (o : obj) = 
             fun fieldName key -> 
                 //fieldName + ": " + key, Serialization.fixTypes o
@@ -94,9 +93,16 @@ module private MatchClause =
 
         let fieldValues = List.map getValues exprs
         
-        FSharpType.GetRecordFields typeOfRec
+        Deserialization.getProperties typ
         |> Array.indexed
         |> Array.choose (fun (i, pi) -> fieldValues.[i] |> Option.map (fun f -> f pi.Name))
+
+    let wrapCreateOfIFS xs =
+        xs
+        |> Array.toList
+        |> List.map (fun f -> f "")
+        |> String.concat ", "
+        |> sprintf "{%s}"
 
     let makeIFS (varDic : VarDic) (expr : Expr) =
         let rec inner (expr : Expr) =
@@ -106,13 +112,11 @@ module private MatchClause =
             | PropertyGet (None, ifs, []) -> ifs.Name
             | Var ifs -> ifs.Name
             | ValueWithName (_, _, name) -> name
-            | NewRecord (t, exprs) -> 
-                makeRecord varDic t exprs
-                |> Array.toList
-                |> List.map (fun f -> f "")
-                |> String.concat ", "
-                |> sprintf "{%s}"
-
+            // TODO : This is just a test
+            | NewRecord (t, exprs) -> makeRecordOrClass varDic t exprs |> wrapCreateOfIFS
+            | NewObject(ci, exprs) -> 
+                printfn "%A" ci.DeclaringType
+                makeRecordOrClass varDic ci.DeclaringType exprs |> wrapCreateOfIFS
             | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
         
         inner expr
@@ -225,7 +229,6 @@ module private MatchClause =
             | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS varDic param1 + makeRelLabel varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
-            |> sprintf "[%s]"
 
     module Node =
 
@@ -256,7 +259,6 @@ module private MatchClause =
             | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
                 makeIFS varDic param1 + makeNodeLabelList varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
-            |> sprintf "(%s)"
     
     let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
         let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
@@ -277,8 +279,8 @@ module private MatchClause =
     let make (varDic : VarDic) expr =
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors (Rel.make varDic) typeofRel statement
-            | GetConstructors (Node.make varDic) typeofNode statement 
+            | GetConstructors (Rel.make varDic) typeofRel statement -> sprintf "[%s]" statement
+            | GetConstructors (Node.make varDic) typeofNode statement -> sprintf "(%s)" statement
             | BuildJoin <@ ( -- ) @> "-" inner statement
             | BuildJoin <@ ( --> ) @> "->" inner statement 
             | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
@@ -314,7 +316,7 @@ module private WhereAndSetStatement =
 
     let [<Literal>] private IFSEntity = "IFSEntity"
 
-    let make (e : Expr) =
+    let make (expr : Expr) =
        
         let addPrimativeParam o =
             fun (key : string) -> key, Serialization.fixTypes o
@@ -335,8 +337,8 @@ module private WhereAndSetStatement =
                 Some (fExpr left @ [ Choice1Of2(sprintf " %s " opSymbol) ] @ fExpr right)
             | _ -> None
 
-        let rec inner (e : Expr) =
-            match e with
+        let rec inner (expr : Expr) =
+            match expr with
             | Operator <@@ (=) @@> "=" inner statement
             | Operator <@@ (<) @@> "<" inner statement
             | Operator <@@ (<=) @@> "<=" inner statement
@@ -352,23 +354,23 @@ module private WhereAndSetStatement =
                 |> List.concat
                 
             | NewUnionCase (ui, [singleCase]) -> inner singleCase
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ]
-            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ] 
-            | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam e ] else [ addPrimativeParam o ] // Also matches ValueWithName
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ]
+            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ] 
+            | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam expr ] else [ addPrimativeParam o ] // Also matches ValueWithName
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
             | PropertyGet (Some e, pi, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
             | PropertyGet (None, pi, _) -> 
                 if Deserialization.hasInterface pi.PropertyType IFSEntity 
-                then [ addSerializedParam e ] 
-                else  [ QuotationEvaluator.EvaluateUntyped e |> addPrimativeParam ]
+                then [ addSerializedParam expr ] 
+                else  [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ]
             | Var v -> [ Choice1Of2 v.Name ]
             | Let (_, _, expr)
             | Lambda (_, expr) -> inner expr
             | _ -> 
-                sprintf "Un matched in WHERE/SET statement: %A" e
+                sprintf "Un matched in WHERE/SET statement: %A" expr
                 |> invalidOp
     
-        inner e
+        inner expr
 
 module private ReturnClause =
 
@@ -517,99 +519,101 @@ module CypherBuilder =
         
         [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
         member _.LIMIT (source : Query<'T>, f : int64) : Query<'T> = NA
-
-        member _.Quote (query : Expr<Query<'T>>) = NA
-
-        member cypher.Run (expr : Expr<Query<'T>>) = 
-            // TODO: This is a bit rough and ready
-            let varDic =
-                let mutable varExp = None
-                let varDic = Generic.Dictionary<string,Expr>()
-                let rec inner expr =
-                    match expr with
-                    | SpecificCall <@ cypher.Yield @> _ -> ()
-                    | SpecificCall <@ cypher.For @> (_, _, [ varValue; yieldEnd ]) ->
-                        varExp <- Some varValue
-                        inner yieldEnd
-                    | Let (v, e1, e2) -> 
-                        if not(varDic.ContainsKey v.Name) then
-                            varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
-                            varExp <- None
-                        inner e2
-                    | ShapeCombination (_, exprs) -> List.iter inner exprs
-                    | ShapeLambda (_, expr) -> inner expr
-                    | ShapeVar _ -> ()
-                inner expr
-                varDic
-
-            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
-                match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statement = MatchClause.make varDic thisStep
-                    let newState = NonParameterized (clause, statement) :: state
-                    Some (fExpr newState stepAbove)
-                | _ -> None
-            
-            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
-                match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statement = WhereAndSetStatement.make thisStep
-                    let newState = Parameterized (clause, statement) :: state
-                    Some (fExpr newState stepAbove)
-                | _ -> None
-            
-            let mutable returnStatement : ReturnContination<'T> = NoReturnClause
-            
-            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
-                match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
-                    let (statement, continuation) = ReturnClause.make<'T> thisStep
-                    let newState = NonParameterized (clause, statement) :: state
-                    returnStatement <- returnStatement.Update continuation
-                    Some (fExpr newState stepAbove)
-                | _ -> None
-            
-            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
-                match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
-                    let statement = BasicClause.make thisStep
-                    let newState = NonParameterized (clause, statement) :: state
-                    Some (fExpr newState stepAbove)
-                | _ -> None
-            
-            let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
-                match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove ]) -> 
-                    let newState = ClauseOnly clause :: state
-                    Some (fExpr newState stepAbove)
-                | _ -> None
-
-            let buildQry (expr : Expr<Query<'T>>) =
-                let rec inner (state : CypherStep list) (expr : Expr) =
-                    match expr with
-                    | SpecificCall <@ cypher.Yield @> _ -> state
-                    | SpecificCall <@ cypher.For @> (_, _, _) -> state
-                    | Let (_, _, expr) 
-                    | Lambda (_, expr) -> inner state expr
-                    | MatchCreateMerge <@ cypher.MATCH @> MATCH state inner stepList
-                    | MatchCreateMerge <@ cypher.OPTIONAL_MATCH @> OPTIONAL_MATCH state inner stepList
-                    | MatchCreateMerge <@ cypher.CREATE @> CREATE state inner stepList
-                    | MatchCreateMerge <@ cypher.MERGE @> MERGE state inner stepList 
-                    | WhereSet <@ cypher.WHERE @> WHERE state inner stepList
-                    | WhereSet <@ cypher.SET @> SET state inner stepList
-                    | Return <@ cypher.RETURN @> RETURN state inner stepList
-                    | Return <@ cypher.RETURN_DISTINCT @> RETURN_DISTINCT state inner stepList
-                    | Basic <@ cypher.DELETE @> DELETE state inner stepList
-                    | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state inner stepList
-                    | Basic <@ cypher.ORDER_BY @> ORDER_BY state inner stepList
-                    | NoStatement <@ cypher.DESC @> DESC state inner stepList
-                    | Basic <@ cypher.SKIP @> SKIP state inner stepList
-                    | Basic <@ cypher.LIMIT @> LIMIT state inner stepList
-                    | Basic <@ cypher.DELETE @> DELETE state inner stepList -> stepList
-                    | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp 
-
-                inner [] expr, returnStatement.Value
-            
-            Cypher(buildQry expr)
-
+     
     let cypher = CypherBuilder()
+
+    let private run<'T> (expr : Expr) =
+        // TODO: This is a bit rough and ready
+        let varDic =
+            let mutable varExp = None
+            let varDic = Generic.Dictionary<string,Expr>()
+            let rec inner expr =
+                match expr with
+                | SpecificCall <@ cypher.Yield @> _ -> ()
+                | SpecificCall <@ cypher.For @> (_, _, [ varValue; yieldEnd ]) ->
+                    varExp <- Some varValue
+                    inner yieldEnd
+                | Let (v, e1, e2) -> 
+                    if not(varDic.ContainsKey v.Name) then
+                        varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
+                        varExp <- None
+                    inner e2
+                | ShapeCombination (_, exprs) -> List.iter inner exprs
+                | ShapeLambda (_, expr) -> inner expr
+                | ShapeVar _ -> ()
+            inner expr
+            varDic
+
+        let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+            match expr with
+            | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                let statement = MatchClause.make varDic thisStep
+                let newState = NonParameterized (clause, statement) :: state
+                Some (fExpr newState stepAbove)
+            | _ -> None
+                
+        let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+            match expr with
+            | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                let statement = WhereAndSetStatement.make thisStep
+                let newState = Parameterized (clause, statement) :: state
+                Some (fExpr newState stepAbove)
+            | _ -> None
+                
+        let mutable returnStatement : ReturnContination<'T> = NoReturnClause
+                
+        let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+            match expr with
+            | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
+                let (statement, continuation) = ReturnClause.make<'T> thisStep
+                let newState = NonParameterized (clause, statement) :: state
+                returnStatement <- returnStatement.Update continuation
+                Some (fExpr newState stepAbove)
+            | _ -> None
+                
+        let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+            match expr with
+            | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
+                let statement = BasicClause.make thisStep
+                let newState = NonParameterized (clause, statement) :: state
+                Some (fExpr newState stepAbove)
+            | _ -> None
+                
+        let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+            match expr with
+            | SpecificCall callExpr (_, _, [ stepAbove ]) -> 
+                let newState = ClauseOnly clause :: state
+                Some (fExpr newState stepAbove)
+            | _ -> None
+
+        let buildQry (expr : Expr) =
+            let rec inner (state : CypherStep list) (expr : Expr) =
+                match expr with
+                | SpecificCall <@ cypher.Yield @> _ -> state
+                | SpecificCall <@ cypher.For @> (_, _, _) -> state
+                | Let (_, _, expr) 
+                | Lambda (_, expr) -> inner state expr
+                | MatchCreateMerge <@ cypher.MATCH @> MATCH state inner stepList
+                | MatchCreateMerge <@ cypher.OPTIONAL_MATCH @> OPTIONAL_MATCH state inner stepList
+                | MatchCreateMerge <@ cypher.CREATE @> CREATE state inner stepList
+                | MatchCreateMerge <@ cypher.MERGE @> MERGE state inner stepList 
+                | WhereSet <@ cypher.WHERE @> WHERE state inner stepList
+                | WhereSet <@ cypher.SET @> SET state inner stepList
+                | Return <@ cypher.RETURN @> RETURN state inner stepList
+                | Return <@ cypher.RETURN_DISTINCT @> RETURN_DISTINCT state inner stepList
+                | Basic <@ cypher.DELETE @> DELETE state inner stepList
+                | Basic <@ cypher.DETACH_DELETE @> DETACH_DELETE state inner stepList
+                | Basic <@ cypher.ORDER_BY @> ORDER_BY state inner stepList
+                | NoStatement <@ cypher.DESC @> DESC state inner stepList
+                | Basic <@ cypher.SKIP @> SKIP state inner stepList
+                | Basic <@ cypher.LIMIT @> LIMIT state inner stepList
+                | Basic <@ cypher.DELETE @> DELETE state inner stepList -> stepList
+                | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp 
+
+            inner [] expr, returnStatement.Value
+
+        Cypher(buildQry expr)
+            
+    type CypherBuilder with
+        member _.Quote (query : Expr<Query<'T>>) = NA
+        member _.Run (expr : Expr<Query<'T>>) = run expr

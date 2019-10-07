@@ -170,9 +170,10 @@ module Node =
         module ``IFSNode`` =
 
             let rtnSt = "MATCH (node) RETURN null"
+            let rtnStParams = """MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
+            
             // Quotations can't contain object expressions
             // so use a graph for binding test
-
             [<Fact>]
             let ``Variable outside function`` () =
                 cypher {
@@ -212,7 +213,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null""", q)
+                |> fun q -> Assert.Equal(rtnStParams, q)
             
             [<Fact>]
             let ``New Record`` () =
@@ -222,7 +223,7 @@ module Node =
                     RETURN ()
                 }
                 |> Cypher.queryNonParameterized
-                |> fun q -> Assert.Equal("""MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null""", q)
+                |> fun q -> Assert.Equal(rtnStParams, q)
 
     module ``Two Parameter Constructor`` =
 

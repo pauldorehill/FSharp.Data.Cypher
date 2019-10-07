@@ -5,10 +5,6 @@ open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
 open Xunit
 
-type LocalGraph =
-    // Need to have a Neo4j instance running with Auth disabled
-    static member Driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None) 
-
 type Movie =
     { title : string
       tagline : string option
@@ -58,13 +54,15 @@ type Graph =
     static member Produced : Query<Produced> = NA
     static member Reviewed : Query<Reviewed> = NA
     static member Wrote : Query<Wrote> = NA
+     // Need to have a Neo4j instance running with Auth disabled
+    static member Driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None)
 
 module ``Primative Types`` =
 
     open Return.``Deserialize: Spoofed Results``
 
     let f x =
-        Cypher.run LocalGraph.Driver x
+        Cypher.run Graph.Driver x
         |> QueryResult.results
         |> Seq.head
 
@@ -85,7 +83,7 @@ module ``Can deserialize all`` =
             MATCH (Node(m, m.Label))
             RETURN m
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Movie>, x))
     
@@ -96,7 +94,7 @@ module ``Can deserialize all`` =
             MATCH (Node(p, p.Label))
             RETURN p
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Person>, x))
     
@@ -107,7 +105,7 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(a, a.Label) -- Node())
             RETURN a
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<ActedIn>, x))
 
@@ -118,7 +116,7 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(d, d.Label) -- Node())
             RETURN d
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Directed>, x))
 
@@ -129,7 +127,7 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(f, f.Label) -- Node())
             RETURN f
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Follows>, x))
     
@@ -141,7 +139,7 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(pr, pr.Label) -- Node())
             RETURN pr
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Produced>, x))
 
@@ -152,7 +150,7 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(r, r.Label) -- Node())
             RETURN r
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Reviewed>, x))
 
@@ -163,6 +161,6 @@ module ``Can deserialize all`` =
             MATCH (Node() -- Rel(w, w.Label) -- Node())
             RETURN w
         }
-        |> Cypher.run LocalGraph.Driver
+        |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Wrote>, x))

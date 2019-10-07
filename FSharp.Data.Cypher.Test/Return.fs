@@ -168,6 +168,7 @@ module ``All allowed Types on a Record`` =
           boolArray : bool array 
           boolSet : bool Set }
         interface IFSNode
+
     let makeToReturnType xs =
         xs
         |> Map.ofList
@@ -249,8 +250,6 @@ module ``All allowed Types on a Record`` =
           "boolArray", box false
           "boolSet", box false ]
         |> makeToReturnType
-
-
 
     let spoofDic =  
         [ "allAllowedSome", box allAllowedSome

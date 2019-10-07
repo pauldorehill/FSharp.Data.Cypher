@@ -116,7 +116,8 @@ module Deserialization =
         else 
             typ.Name
             |> sprintf "Type %s was not a F# record or class"
-            |> invalidOp 
+            |> invalidOp
+
     let getProperties (typ : Type) =
         let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
         if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
