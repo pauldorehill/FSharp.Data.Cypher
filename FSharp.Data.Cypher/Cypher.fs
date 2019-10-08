@@ -131,20 +131,33 @@ type Cypher<'T>(cypherSteps : CypherStep list, continuation : Generic.IReadOnlyD
     let sb = new Text.StringBuilder()
     let makeQuery (paramterized : bool) (multiline : bool) =
         let add (s : string) = sb.Append s |> ignore
+        let total = cypherSteps.Length
+        let mutable count : int = 1
+
         for step in cypherSteps do
             add (string step.Clause)
-            add " "
-            if paramterized then add step.Statement else add step.RawStatement
-            if multiline then add Environment.NewLine else add " "
+            if paramterized 
+            then 
+                add " " 
+                add step.Statement 
+            else
+                add " "
+                add step.RawStatement
+            if count < total then
+                if multiline then add Environment.NewLine else add " "
+            count <- count + 1
+
         let qry = string sb
         sb.Clear() |> ignore
+
         qry
+
     member _.QuerySteps = cypherSteps
     member _.Continuation = continuation
     member _.Parameters = cypherSteps |> List.collect (fun cs -> cs.Parameters) 
     member _.Query = makeQuery true false
-    member _.RawQuery = makeQuery false false
     member _.QueryMultiline = makeQuery true true
+    member _.RawQuery = makeQuery false false
     member _.RawQueryMultiline = makeQuery false true
     member _.IsWrite = cypherSteps |> List.exists (fun x -> x.Clause.IsWrite)
 
