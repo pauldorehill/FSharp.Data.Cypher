@@ -154,7 +154,7 @@ module Deserialization =
         typ
         |> getProperties 
         |> Array.map makeObj
-
+        |> fun xs -> typ, xs
 
 module Serialization =  
 

@@ -35,11 +35,14 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let AddParamterized (str : string) = ParameterizedSb.Append str |> ignore
     let AddNonParamterized (str : string) = NonParameterizedSb.Append str |> ignore
 
+    static member KeySymbol = "$"
+
     static member FixStringParameter (o : obj) =
         
         let makeStr (s : string) = sprintf "\"%s\"" s
 
         match o with
+        | :? unit as u -> "null"
         | :? string as s -> makeStr s
         | :? bool as b -> b.ToString().ToLower()
         | :? Generic.List<obj> as xs ->
@@ -60,7 +63,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     member this.GenerateKey() = 
         let key = sprintf "step%iparam%i" StepCount PrmCount
         PrmCount <- PrmCount + 1
-        AddParamterized "$"
+        AddParamterized StatementBuilder.KeySymbol
         AddParamterized key
         key
     
@@ -72,10 +75,6 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         Prms <- (key, o) :: Prms
 
     member this.AddObj (o : obj) = 
-        Serialization.fixTypes o
-        |> this.Add
-
-    member this.AddObjReturnKey (o : obj) = 
         Serialization.fixTypes o
         |> this.Add
 
@@ -150,6 +149,7 @@ module private MatchClause =
                 //fieldName + ": " + key, Serialization.fixTypes o
                 
                 fieldName + ": " + StatementBuilder.FixStringParameter(o)
+                //invalidOp "Not made yet"
 
         let getValues expr =
             match expr with
@@ -445,98 +445,104 @@ module private WhereAndSetStatement =
 module private ReturnClause =
 
     let make<'T> (stepState : StepBuilder) clause (expr : Expr) =
-
-
-        let extractStatement (stB : StatementBuilder) (exp : Expr) =
-            match exp with
-            | Value (o, _) -> stB.AddObj o
-            | Var v -> stB.AddStatement v.Name
+        
+        let stmBuilder = StatementBuilder(clause, stepState)
+        
+        let maker (expr : Expr) =
+            match expr with
+            | Value (o, _) -> 
+                StatementBuilder.FixStringParameter o
+                |> stmBuilder.AddStatement
+            | Var v -> 
+                stmBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) -> 
-                stB.AddStatement v.Name
-                stB.AddStatement "."
-                stB.AddStatement pi.Name
-            | PropertyGet (None, pi, _) -> stB.AddStatement pi.Name
+                stmBuilder.AddStatement v.Name
+                stmBuilder.AddStatement "."
+                stmBuilder.AddStatement pi.Name
+            | PropertyGet (None, pi, _) -> 
+                stmBuilder.AddStatement pi.Name
             | _ ->
                 exp
-                |> sprintf "Trying to extract statement but couldn't match expression: %A"
+                |> sprintf "Trying to extract RETURN statement but couldn't match expression: %A"
                 |> invalidOp
 
-        let makeTuple (stmBuilder: StatementBuilder) exprs =
-            exprs
-            |> List.iteri (fun i expr -> 
-                if i <> 0 then stmBuilder.AddStatement ", "
-                extractStatement stmBuilder expr)
+            fun (di : Generic.IReadOnlyDictionary<string, obj>) ->
+            
+                let deserializeIEntity (typ : Type) (returnObj : obj) =
+                    returnObj
+                    :?> IEntity
+                    |> Deserialization.deserialize typ
+                    |> fun (typ, xs) -> Deserialization.createRecordOrClass typ xs
 
+                match expr with
+                | Value (o, typ) ->
+                    let key = StatementBuilder.FixStringParameter o
+                    let rtnO = di.[key]
+                    let o = Deserialization.fixTypes key typ rtnO
+                    Expr.Value(o, typ)
+                | Var v -> 
+                    let key = v.Name
+                    let rtnO = di.[key]
+                    let o = deserializeIEntity v.Type rtnO
+                    Expr.Value(o, v.Type)
+                | PropertyGet (Some (Var v), pi, _) ->
+                    let key = sprintf "%s.%s" v.Name pi.Name
+                    let rtnO = di.[key]
+                    let o = Deserialization.fixTypes pi.Name pi.PropertyType rtnO
+                    Expr.Value(o, pi.PropertyType)
+                | PropertyGet (None, pi, []) -> 
+                    let key = pi.Name
+                    let rtnO = di.[key]
+                    let o = deserializeIEntity pi.PropertyType rtnO
+                    Expr.Value(o, pi.PropertyType)
+                | _ ->
+                    expr
+                    |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
+                    |> invalidOp
 
-        let stmBuilder = StatementBuilder(clause, stepState)
-
-        let makeNewType (key : string) (typ : Type) (di : Generic.IReadOnlyDictionary<string, obj>) =
-            di.[key] 
-            :?> IEntity
-            |> Deserialization.deserialize typ
-            |> Deserialization.createRecordOrClass typ
-
-        let extractValue (di : Generic.IReadOnlyDictionary<string, obj>) (expr : Expr) =
-            match expr with
-            | Value (o, typ) ->
-                printfn "%A" di
-                let key = StatementBuilder.FixStringParameter o
-                let o = Deserialization.fixTypes key typ di.[key]
-                Expr.Value(o, typ)
-            | Var v -> Expr.Value(makeNewType v.Name v.Type di, v.Type)
-            | PropertyGet (Some (Var v), pi, _) ->
-                let key = sprintf "%s.%s" v.Name pi.Name
-                let o = Deserialization.fixTypes pi.Name pi.PropertyType di.[key]
-                Expr.Value(o, pi.PropertyType)
-            | PropertyGet (None, pi, []) -> 
-                Expr.Value(makeNewType pi.Name expr.Type di, pi.PropertyType)
-            | _ ->
-                expr
-                |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
-                |> invalidOp
 
         let rec inner (expr : Expr) =
             match expr with
-            | Value _ 
-            | Var _ 
-            | PropertyGet _ ->
-                extractStatement stmBuilder expr
-                let continuation di = extractValue di expr
-                continuation
-            | NewTuple exprs ->
-                makeTuple stmBuilder exprs
-
-                let contination di =
-                    exprs
-                    |> List.map (extractValue di)
-                    |> Expr.NewTuple
-
-                contination
-
             | Let (_, _, expr) 
             | Lambda (_, expr) -> inner expr
+            | Value _ 
+            | Var _ 
+            | PropertyGet _ -> maker expr
+            | NewTuple exprs ->
+                let continuations =
+                    exprs
+                    |> List.mapi (fun i expr -> 
+                        if i <> 0 then stmBuilder.AddStatement ", "
+                        maker expr)
+
+                fun di ->
+                    continuations
+                    |> List.map (fun f -> f di)
+                    |> Expr.NewTuple
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
         
         // Need to run so build the statement correctly
         let continuation = inner expr
 
-        let result di = continuation di |> QuotationEvaluator.CompileUntyped :?> 'T
+        let result di = continuation di |> QuotationEvaluator.EvaluateUntyped :?> 'T
 
         stepState.Add(stmBuilder.Build), result
 
 module private BasicClause =
 
-    let rec make (stepState : StepBuilder) clause (expr : Expr) =
+    let make (stepState : StepBuilder) clause (expr : Expr) =
+        
+        let stmBuilder = StatementBuilder(clause, stepState)
 
-        let extractStatement (stB : StatementBuilder) (exp : Expr) =
+        let extractStatement (exp : Expr) =
             match exp with
-            | Value (o, _) -> stB.AddObj o
-            | Var v -> stB.AddStatement v.Name
+            | Value (o, _) -> stmBuilder.AddObj o
+            | Var v -> stmBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) -> 
-                stB.AddStatement v.Name
-                stB.AddStatement "."
-                stB.AddStatement pi.Name
-            | PropertyGet (None, pi, _) -> stB.AddStatement pi.Name
+                stmBuilder.AddStatement v.Name
+                stmBuilder.AddStatement "."
+                stmBuilder.AddStatement pi.Name
+            | PropertyGet (None, pi, _) -> stmBuilder.AddStatement pi.Name
             | _ ->
                 exp
                 |> sprintf "Trying to extract statement but couldn't match expression: %A"
@@ -546,15 +552,13 @@ module private BasicClause =
             exprs
             |> List.iteri (fun i expr -> 
                 if i <> 0 then stmBuilder.AddStatement ", "
-                extractStatement stmBuilder expr)
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+                extractStatement expr)
 
         let rec inner expr =
             match expr with
             | Value _ 
             | Var _ 
-            | PropertyGet _ -> extractStatement stmBuilder expr
+            | PropertyGet _ -> extractStatement expr
             | NewTuple exprs -> makeTuple stmBuilder exprs
             | Let (_, _, expr) 
             | Lambda (_, expr) -> inner expr

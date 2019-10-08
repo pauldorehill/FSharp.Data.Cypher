@@ -143,13 +143,12 @@ type Cypher<'T>(cypherSteps : CypherStep list, continuation : Generic.IReadOnlyD
             else
                 add " "
                 add step.RawStatement
-            if count < total then
+            if count < total then 
                 if multiline then add Environment.NewLine else add " "
             count <- count + 1
 
         let qry = string sb
         sb.Clear() |> ignore
-
         qry
 
     member _.QuerySteps = cypherSteps
