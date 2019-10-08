@@ -41,7 +41,7 @@ module Node =
                 MATCH (Node())
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()", q)
             
         [<Fact>]
@@ -51,7 +51,7 @@ module Node =
                 MATCH (Node() -- Node())
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()--()", q)
             
         [<Fact>]
@@ -61,7 +61,7 @@ module Node =
                 MATCH (Node() --> Node())
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()-->()", q)
             
         [<Fact>]
@@ -71,7 +71,7 @@ module Node =
                 MATCH (Node() <-- Node())
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()<--()", q)
     
     module ``Single Parameter Constructor`` =
@@ -86,7 +86,7 @@ module Node =
                     MATCH (Node(NodeLabel label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -96,7 +96,7 @@ module Node =
                     MATCH (Node nodeLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -108,7 +108,7 @@ module Node =
                     }
 
                 f nodeLabel
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -118,7 +118,7 @@ module Node =
                     MATCH (Node nodeLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
         module ``NodeLabel list`` =
@@ -132,7 +132,7 @@ module Node =
                     MATCH (Node([ NodeLabel label; NodeLabel label; NodeLabel label]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -142,7 +142,7 @@ module Node =
                     MATCH (Node nodeLabels)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -154,7 +154,7 @@ module Node =
                     }
 
                 f nodeLabels
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -164,7 +164,7 @@ module Node =
                     MATCH (Node nodeLabels)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``IFSNode`` =
@@ -180,7 +180,7 @@ module Node =
                     MATCH (Node node)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -192,7 +192,7 @@ module Node =
                     }
 
                 f node
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -202,7 +202,7 @@ module Node =
                     MATCH (Node node)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -212,7 +212,7 @@ module Node =
                     MATCH (Node({ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStParams, q)
             
             [<Fact>]
@@ -222,7 +222,7 @@ module Node =
                     MATCH (Node({ IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStParams, q)
 
     module ``Two Parameter Constructor`` =
@@ -238,7 +238,7 @@ module Node =
                     MATCH (Node(node, nodeLabel))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -250,7 +250,7 @@ module Node =
                     }
 
                 f node nodeLabel
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -260,7 +260,7 @@ module Node =
                     MATCH (Node(node, node.Label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
             [<Fact>]
@@ -270,7 +270,7 @@ module Node =
                     MATCH (Node(node, node.Label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
                 
             [<Fact>]
@@ -280,7 +280,7 @@ module Node =
                     MATCH (Node(node, node.Label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(IFSNode, NodeLabel List)`` =
@@ -295,7 +295,7 @@ module Node =
                     MATCH (Node(node, [ NodeLabel label; NodeLabel label; NodeLabel label]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -304,7 +304,7 @@ module Node =
                     MATCH (Node(node, List.map NodeLabel [ label; label; label ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
             [<Fact>]
@@ -314,7 +314,7 @@ module Node =
                     MATCH (Node(node, labels))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -324,7 +324,7 @@ module Node =
                     MATCH (Node(node, nodeLabels))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -336,7 +336,7 @@ module Node =
                     }
 
                 f node nodeLabels
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -346,7 +346,7 @@ module Node =
                     MATCH (Node(node, nodeLabels))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(IFSNode, IFSNode)`` =
@@ -360,7 +360,7 @@ module Node =
                     MATCH (Node(node, { node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
             
     module ``Three Parameter Constructor`` =
@@ -376,7 +376,7 @@ module Node =
                     MATCH (Node(node, nodeLabel ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
         
         module ``(IFSNode, NodeLabel List, IFSNode)`` =
@@ -390,7 +390,7 @@ module Node =
                     MATCH (Node(node, nodeLabels ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
 
 module Relationship =
@@ -422,7 +422,7 @@ module Relationship =
                 MATCH (Rel())
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal("MATCH [] RETURN null", q)
 
     module ``Single Parameter Constructor`` =
@@ -439,7 +439,7 @@ module Relationship =
                     MATCH (Rel rel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -451,7 +451,7 @@ module Relationship =
                     }
 
                 f rel
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -461,7 +461,7 @@ module Relationship =
                     MATCH (Rel rel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
             [<Fact>]
@@ -471,7 +471,7 @@ module Relationship =
                     MATCH (Rel({ rel with Value = "NewValue" }))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("""MATCH [{Value: "NewValue"}] RETURN null""", q)
 
         module ``RelLabel`` =
@@ -484,7 +484,7 @@ module Relationship =
                     MATCH (Rel(RelLabel label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -494,7 +494,7 @@ module Relationship =
                     MATCH (Rel relLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -506,7 +506,7 @@ module Relationship =
                     }
 
                 f relLabel
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
             [<Fact>]
@@ -516,7 +516,7 @@ module Relationship =
                     MATCH (Rel relLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
                 
             [<Fact>]
@@ -526,7 +526,7 @@ module Relationship =
                     MATCH (Rel rel.Label)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
                 
             [<Fact>]
@@ -535,7 +535,7 @@ module Relationship =
                     MATCH (Rel RelType.StaticLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
         module ``Path Hops`` =
@@ -546,7 +546,7 @@ module Relationship =
                     MATCH (Rel(3u))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*3] RETURN null", q)
             
             [<Fact>]
@@ -555,7 +555,7 @@ module Relationship =
                     MATCH (Rel RelType.IntLabelList)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*0..3] RETURN null", q)
             
             [<Fact>]
@@ -565,7 +565,7 @@ module Relationship =
                     MATCH (Rel rel.IntLabel)
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*3] RETURN null", q)
             
             [<Fact>]
@@ -574,7 +574,7 @@ module Relationship =
                     MATCH (Rel([ 1u .. 3u ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*1..3] RETURN null", q)
             
             [<Fact>]
@@ -583,7 +583,7 @@ module Relationship =
                     MATCH (Rel([ 0u .. UInt32.MaxValue ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*0..] RETURN null", q)
             
             [<Fact>]
@@ -592,7 +592,7 @@ module Relationship =
                     MATCH (Rel([ 1u; 0u; 3u; 5u; 3u; 7u; ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal("MATCH [*0..7] RETURN null", q)
 
     module ``Two Parameter Constructor`` =
@@ -608,7 +608,7 @@ module Relationship =
                     MATCH (Rel(rel, relLabel))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -620,7 +620,7 @@ module Relationship =
                     }
 
                 f rel relLabel
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -630,7 +630,7 @@ module Relationship =
                     MATCH (Rel(rel, rel.Label))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(RelLabel, uint32)`` =
@@ -645,7 +645,7 @@ module Relationship =
                     MATCH (Rel(relLabel, 3u))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -656,7 +656,7 @@ module Relationship =
                     MATCH (Rel(relLabel, hops))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -668,7 +668,7 @@ module Relationship =
                     }
 
                 f relLabel 3u 
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
         
         module ``(RelLabel, uint32 list)`` =
@@ -684,7 +684,7 @@ module Relationship =
                     MATCH (Rel(relLabel, [ i0 .. i3 ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
             [<Fact>]
@@ -694,7 +694,7 @@ module Relationship =
                     MATCH (Rel(relLabel, [ 0u .. i3 ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
             
             [<Fact>]
@@ -704,7 +704,7 @@ module Relationship =
                     MATCH (Rel(relLabel, [ i0 .. 3u ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -716,7 +716,7 @@ module Relationship =
                     MATCH (Rel(relLabel, [ min .. hops ]))
                     RETURN ()
                 }
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
             [<Fact>]
@@ -728,7 +728,7 @@ module Relationship =
                     }
 
                 f relLabel [ 0u .. 3u ] 
-                |> Cypher.queryNonParameterized
+                |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
     module ``Three Parameter Constructor`` =
@@ -740,7 +740,7 @@ module Relationship =
                 MATCH (Rel(rel, rel.Label, { rel with Value = "NewValue" }))
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal("""MATCH [rel:REL_LABEL {Value: "NewValue"}] RETURN null""", q)
 
     module ``RelLabel Combination Operator`` =
@@ -755,7 +755,7 @@ module Relationship =
                 MATCH (Rel(RelLabel label / RelLabel label / RelLabel label))
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
 
         [<Fact>]
@@ -765,7 +765,7 @@ module Relationship =
                 MATCH (Rel relLabel)
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
 
         [<Fact>]
@@ -777,7 +777,7 @@ module Relationship =
                 }
 
             f relLabel
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
         
         [<Fact>]
@@ -787,5 +787,5 @@ module Relationship =
                 MATCH (Rel relLabel)
                 RETURN ()
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)

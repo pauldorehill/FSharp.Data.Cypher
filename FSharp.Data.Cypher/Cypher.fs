@@ -127,28 +127,6 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
     member _.RawStatement = rawStatement
     member _.Parameters = parameters
 
-    static member FixStringParameter (s : string) = sprintf "\"%s\"" s
-
-    static member FixStringParameter (o : obj) = 
-        if isNull o then "null"
-        else
-            match o with
-            | :? string as s -> CypherStep.FixStringParameter s
-            | :? bool as b -> b.ToString().ToLower()
-            | :? Generic.List<obj> as xs ->
-                xs
-                |> Seq.map string
-                |> String.concat ", "
-                |> sprintf "[ %s ]"
-
-            | :? Generic.Dictionary<string, obj> as d ->
-                d 
-                |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter kv.Value)
-                |> String.concat ", "
-                |> sprintf "{ %s }"
-
-            | _ -> string o
-
 type Cypher<'T>(cypherSteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
     let sb = new Text.StringBuilder()
     let makeQuery (paramterized : bool) (multiline : bool) =

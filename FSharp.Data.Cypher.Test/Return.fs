@@ -15,7 +15,7 @@ module ``Query Building`` =
             cypher {
                 RETURN true
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN true", r)
     
         [<Fact>]
@@ -23,7 +23,7 @@ module ``Query Building`` =
             cypher {
                 RETURN false
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN false", r)
         
         [<Fact>]
@@ -31,7 +31,7 @@ module ``Query Building`` =
             cypher {
                 RETURN 5
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5", r)
     
         [<Fact>]
@@ -39,7 +39,7 @@ module ``Query Building`` =
             cypher {
                 RETURN 5L
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5", r)
         
         [<Fact>]
@@ -47,7 +47,7 @@ module ``Query Building`` =
             cypher {
                 RETURN 5.5
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5.5", r)
     
         [<Fact>]
@@ -55,7 +55,7 @@ module ``Query Building`` =
             cypher {
                 RETURN "EMU"
             }
-            |> Cypher.queryNonParameterized
+            |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN \"EMU\"", r)
 
 module ``Deserialize: Spoofed Results`` =
