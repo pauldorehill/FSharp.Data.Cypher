@@ -23,18 +23,18 @@ type Query =
 type private StepBuilder private (stepNo : int, steps : CypherStep list) =
     member _.StepNo = stepNo
     member _.Steps = steps
-    member this.Next (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
+    member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
     static member Init = StepBuilder(1, [])
 
-type private StatementBuilder(stepBuilder : StepBuilder) =
-    let mutable Prms = []
-    let mutable PrmCount = 1
+type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
+    let mutable Prms : ParameterList = []
+    let mutable PrmCount : int = 1
     let StepCount = stepBuilder.StepNo
     let ParameterizedSb = new Text.StringBuilder()
     let NonParameterizedSb = new Text.StringBuilder()
     let AddParamterized (str : string) = ParameterizedSb.Append str |> ignore
     let AddNonParamterized (str : string) = NonParameterizedSb.Append str |> ignore
-
+    member private this.Clause = clause
     member private this.GenerateKey() = 
         let key = sprintf "step%iparam%i" StepCount PrmCount
         PrmCount <- PrmCount + 1
@@ -42,7 +42,7 @@ type private StatementBuilder(stepBuilder : StepBuilder) =
         AddParamterized key
         key
     
-    member private this.AddObj (o : obj) = 
+    member private this.AddObj (o : obj option) = 
         AddNonParamterized (CypherStep.FixStringParameter o)
         Prms <- (this.GenerateKey(), o) :: Prms
 
@@ -63,7 +63,7 @@ type private StatementBuilder(stepBuilder : StepBuilder) =
         AddNonParamterized stmt
         AddParamterized stmt
 
-    member this.Return = ParameterizedSb.ToString(), Prms
+    member this.Build = CypherStep(this.Clause, ParameterizedSb.ToString(), NonParameterizedSb.ToString(), Prms)
 
 module private MatchClause =
     
@@ -272,6 +272,7 @@ module private MatchClause =
             | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS varDic param1 + makeRelLabel varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
+            |> sprintf "[%s]" 
 
     module Node =
 
@@ -302,7 +303,8 @@ module private MatchClause =
             | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
                 makeIFS varDic param1 + makeNodeLabelList varDic param2 + " " + makeIFS varDic param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
-    
+            |> sprintf "(%s)" 
+
     let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
         let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
         match expr with
@@ -319,15 +321,14 @@ module private MatchClause =
             |> fun s -> Some (fResult left + s + fResult right)
         | _ -> None
 
-
-    let make (stepState : StepBuilder) (varDic : VarDic) expr =
+    let make clause (stepState : StepBuilder) (varDic : VarDic) expr =
         
-        let stmBuilder = StatementBuilder(stepState)
+        let stmBuilder = StatementBuilder(clause, stepState)
 
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors (Rel.make varDic) typeofRel statement -> sprintf "[%s]" statement
-            | GetConstructors (Node.make varDic) typeofNode statement -> sprintf "(%s)" statement
+            | GetConstructors (Rel.make varDic) typeofRel statement 
+            | GetConstructors (Node.make varDic) typeofNode statement -> statement
             | BuildJoin <@ ( -- ) @> "-" inner statement
             | BuildJoin <@ ( --> ) @> "->" inner statement 
             | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
@@ -359,9 +360,9 @@ module private WhereAndSetStatement =
 
     let [<Literal>] private IFSEntity = "IFSEntity"
 
-    let make (stepState : StepBuilder) (expr : Expr) =
+    let make clause (stepState : StepBuilder) (expr : Expr) =
 
-        let stmBuilder = StatementBuilder(stepState)
+        let stmBuilder = StatementBuilder(clause, stepState)
 
         let buildState fExpr left symbol right =    
             fExpr left
@@ -388,6 +389,7 @@ module private WhereAndSetStatement =
                 exprs
                 |> List.iteri (fun i expr -> if i = 0 then inner expr else stmBuilder.AddStatement ", "; inner expr)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
+            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddPrimativeType expr
             | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddPrimativeType expr
             | NewArray (_, _) -> stmBuilder.AddPrimativeType expr
             | Value (_, typ) -> 
@@ -416,7 +418,7 @@ module private WhereAndSetStatement =
                 |> invalidOp
         
         inner expr
-        stmBuilder.Return |> fst
+        stmBuilder.Build
 
 module private ReturnClause =
 
@@ -569,6 +571,7 @@ module CypherBuilder =
     let cypher = CypherBuilder()
 
     let private run<'T> (expr : Expr) =
+        
         // TODO: This is a bit rough and ready
         let varDic =
             let mutable varExp = None
@@ -594,16 +597,15 @@ module CypherBuilder =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                 let statement = MatchClause.make state varDic thisStep
-                let newState = state.Next(NonParameterized (clause, statement))
+                let newState = state.Add(NonParameterized (clause, statement))
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
         let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                let statement = WhereAndSetStatement.make state thisStep
-                let newState = state.Next(NonParameterized (clause, statement))
-                Some (fExpr newState stepAbove)
+                let state = state.Add(WhereAndSetStatement.make clause state thisStep)
+                Some (fExpr state stepAbove)
             | _ -> None
                 
         let mutable returnStatement : ReturnContination<'T> = NoReturnClause
@@ -612,7 +614,7 @@ module CypherBuilder =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                 let (statement, continuation) = ReturnClause.make<'T> thisStep
-                let newState = state.Next(NonParameterized (clause, statement))
+                let newState = state.Add(NonParameterized (clause, statement))
                 returnStatement <- returnStatement.Update continuation
                 Some (fExpr newState stepAbove)
             | _ -> None
@@ -621,14 +623,14 @@ module CypherBuilder =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                 let statement = BasicClause.make thisStep
-                let newState = state.Next(NonParameterized (clause, statement))
+                let newState = state.Add(NonParameterized (clause, statement))
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
         let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove ]) -> 
-                let newState = state.Next(ClauseOnly clause)
+                let newState = state.Add(ClauseOnly clause)
                 Some (fExpr newState stepAbove)
             | _ -> None
 
@@ -662,4 +664,4 @@ module CypherBuilder =
             
     type CypherBuilder with
         member _.Quote (query : Expr<Query<'T>>) = NA
-        member _.Run (expr : Expr<Query<'T>>) = run expr
+        member _.Run (expr : Expr<Query<'T>>) = run<'T> expr

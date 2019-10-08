@@ -178,47 +178,49 @@ module Serialization =
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
     let fixTypes (o : obj) =
-        let typ = o.GetType()
-        if typ = typeof<string> then Some o
-        elif typ = typeof<int64> then Some o
-        elif typ = typeof<int32> then Some o //:?> int32 |> int64 |> box
-        elif typ = typeof<float> then Some o
-        elif typ = typeof<bool> then Some o
-
-        elif typ = typeof<string option> then makeOption<string> o
-        elif typ = typeof<int64 option> then makeOption<int64> o
-        elif typ = typeof<int32 option> then makeOption<int32> o
-        elif typ = typeof<float option> then makeOption<float> o
-        elif typ = typeof<bool option> then makeOption<bool> o
-
-        elif typ = typeof<string seq> then checkCollection<string> o
-        elif typ = typeof<int64 seq> then checkCollection<int64> o
-        elif typ = typeof<int32 seq> then checkCollection<int32> o
-        elif typ = typeof<float seq> then checkCollection<float> o
-        elif typ = typeof<bool seq> then checkCollection<bool> o
-            
-        elif typ = typeof<string []> then checkCollection<string> o
-        elif typ = typeof<int64 []> then checkCollection<int64> o
-        elif typ = typeof<int32 []> then checkCollection<int32> o
-        elif typ = typeof<float []> then checkCollection<float> o
-        elif typ = typeof<bool []> then checkCollection<bool> o
-            
-        elif typ = typeof<string list> then checkCollection<string> o
-        elif typ = typeof<int64 list> then checkCollection<int64> o
-        elif typ = typeof<int32 list> then checkCollection<int32> o
-        elif typ = typeof<float list> then checkCollection<float> o
-        elif typ = typeof<bool list> then checkCollection<bool> o
-            
-        elif typ = typeof<string Set> then checkCollection<string> o
-        elif typ = typeof<int64 Set> then checkCollection<int64> o
-        elif typ = typeof<int32 Set> then checkCollection<int32> o
-        elif typ = typeof<float Set> then checkCollection<float> o
-        elif typ = typeof<bool Set> then checkCollection<bool> o
-        
+        if isNull o then None
         else
-            typ
-            |> sprintf "Unsupported property/value: %s. Type: %A" typ.Name
-            |> invalidOp
+            let typ = o.GetType()
+            if typ = typeof<string> then Some o
+            elif typ = typeof<int64> then Some o
+            elif typ = typeof<int32> then Some o //:?> int32 |> int64 |> box
+            elif typ = typeof<float> then Some o
+            elif typ = typeof<bool> then Some o
+
+            elif typ = typeof<string option> then makeOption<string> o
+            elif typ = typeof<int64 option> then makeOption<int64> o
+            elif typ = typeof<int32 option> then makeOption<int32> o
+            elif typ = typeof<float option> then makeOption<float> o
+            elif typ = typeof<bool option> then makeOption<bool> o
+
+            elif typ = typeof<string seq> then checkCollection<string> o
+            elif typ = typeof<int64 seq> then checkCollection<int64> o
+            elif typ = typeof<int32 seq> then checkCollection<int32> o
+            elif typ = typeof<float seq> then checkCollection<float> o
+            elif typ = typeof<bool seq> then checkCollection<bool> o
+            
+            elif typ = typeof<string []> then checkCollection<string> o
+            elif typ = typeof<int64 []> then checkCollection<int64> o
+            elif typ = typeof<int32 []> then checkCollection<int32> o
+            elif typ = typeof<float []> then checkCollection<float> o
+            elif typ = typeof<bool []> then checkCollection<bool> o
+            
+            elif typ = typeof<string list> then checkCollection<string> o
+            elif typ = typeof<int64 list> then checkCollection<int64> o
+            elif typ = typeof<int32 list> then checkCollection<int32> o
+            elif typ = typeof<float list> then checkCollection<float> o
+            elif typ = typeof<bool list> then checkCollection<bool> o
+            
+            elif typ = typeof<string Set> then checkCollection<string> o
+            elif typ = typeof<int64 Set> then checkCollection<int64> o
+            elif typ = typeof<int32 Set> then checkCollection<int32> o
+            elif typ = typeof<float Set> then checkCollection<float> o
+            elif typ = typeof<bool Set> then checkCollection<bool> o
+        
+            else
+                typ
+                |> sprintf "Unsupported property/value: %s. Type: %A" typ.Name
+                |> invalidOp
 
     let serialize (e : #IFSEntity) =
         let typ = e.GetType()

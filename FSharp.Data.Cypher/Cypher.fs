@@ -119,93 +119,56 @@ module TransactionResult =
     
     let asyncRollback (tr : TransactionResult<'T>) = tr.AsyncRollback()
 
-type Statement =
-    | NoParams of string
-    | Params of (string -> (string * obj option))
+type ParameterList = (string * obj option) list
 
-type CypherStep =
-    | ClauseOnly of Clause : Clause
-    | NonParameterized of Clause : Clause * Statement : string
-    | Parameterized of Clause : Clause * Statement : Statement list
-    member this.Clause =
-        match this with
-        | ClauseOnly c -> c
-        | NonParameterized (c, _) -> c
-        | Parameterized (c, _) -> c
+type CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
+    member _.Clause = clause
+    member _.Statement = statement
+    member _.RawStatement = rawStatement
+    member _.Parameters = parameters
+
     static member FixStringParameter (s : string) = sprintf "\"%s\"" s
+
     static member FixStringParameter (o : obj) = 
         if isNull o then "null"
         else
-            let typ = o.GetType()
-            if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter
-            elif typ = typeof<bool> then (o :?> bool).ToString().ToLower()
-            else string o
-    static member Paramkey = "$"
-   
-module CypherStep =
-    
-    let keyGenerator (stepCount : int) (paramCount : int) = "step" + string stepCount + "param" + string paramCount
+            match o with
+            | :? string as s -> CypherStep.FixStringParameter s
+            | :? bool as b -> b.ToString().ToLower()
+            | :? Generic.List<obj> as xs ->
+                xs
+                |> Seq.map string
+                |> String.concat ", "
+                |> sprintf "[ %s ]"
 
-    // I think need to get away from this, by passing the stepIndex down inthe Query:
-    // can then avoid all the list concats
-    let buildQuery (steps : CypherStep list) =
-        let mutable prmList = List.Empty
-        let makeParms (c : Clause) (stepCount : int) (stms : Statement list) =
-            let mutable pCount = 1
-            stms
-            |> List.map (fun x ->
-                match x with
-                | NoParams s -> s
-                | Params f -> 
-                    let key = keyGenerator (stepCount + 1) pCount
-                    pCount <- pCount + 1
-                    prmList <- f key :: prmList
-                    CypherStep.Paramkey + key)
-            |> String.concat ""
-            |> sprintf "%s %s" (string c)
+            | :? Generic.Dictionary<string, obj> as d ->
+                d 
+                |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter kv.Value)
+                |> String.concat ", "
+                |> sprintf "{ %s }"
 
-        steps
-        |> List.indexed
-        |> List.choose (fun (stepIndex, step) -> 
-            match step with
-            | ClauseOnly c -> Some (string c)
-            | NonParameterized (c, s) ->
-                // TODO: This is removing empty statements. Do something better...as this relates to the requirement for RETURN...
-                if s = "" then None else Some (sprintf "%s %s" (string c) s)
-            | Parameterized (c, stms) -> Some (makeParms c stepIndex stms))
-        |> fun s -> s, prmList
+            | _ -> string o
 
-type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
-    let Paramkey = "$"
-    let (query, prms) = CypherStep.buildQuery querySteps
-    member _.QuerySteps = querySteps
+type Cypher<'T>(cypherSteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
+    let sb = new Text.StringBuilder()
+    let makeQuery (paramterized : bool) (multiline : bool) =
+        let add (s : string) = sb.Append s |> ignore
+        for step in cypherSteps do
+            add (string step.Clause)
+            add " "
+            if paramterized then add step.Statement else add step.RawStatement
+            if multiline then add Environment.NewLine else add " "
+        let qry = string sb
+        sb.Clear() |> ignore
+        qry
+    member _.QuerySteps = cypherSteps
     member _.Continuation = continuation
-    member _.Parameters = prms
-    member _.Query = String.concat " " query
-    member _.QueryMultiline = String.concat Environment.NewLine query 
-    member _.IsWrite = querySteps |> List.exists (fun x -> x.Clause.IsWrite)
-    member this.QueryNonParameterized = // TODO : should build this at the same time as the paramterized query
-        (this.Query, this.Parameters)
-        ||> List.fold (fun state (k, o) -> 
-            let v =
-                match o with
-                | Some o ->
-                    match o with
-                    | :? string as s -> CypherStep.FixStringParameter s
-                    | :? Generic.List<obj> as xs ->
-                        xs
-                        |> Seq.map string
-                        |> String.concat ", "
-                        |> sprintf "[ %s ]"
-                    | :? Generic.Dictionary<string, obj> as d ->
-                        d 
-                        |> Seq.map (fun kv -> kv.Key + " : " + CypherStep.FixStringParameter kv.Value)
-                        |> String.concat ", "
-                        |> sprintf "{ %s }"
-                    | _ -> string o
-                | None -> "null"
-
-            state.Replace(Paramkey + k, v))
+    member _.Parameters = cypherSteps |> List.collect (fun cs -> cs.Parameters) 
+    member _.Query = makeQuery true false
+    member _.RawQuery = makeQuery false false
+    member _.QueryMultiline = makeQuery true true
+    member _.RawQueryMultiline = makeQuery false true
+    member _.IsWrite = cypherSteps |> List.exists (fun x -> x.Clause.IsWrite)
 
 module Cypher =
 
@@ -248,7 +211,7 @@ module Cypher =
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
-    let queryNonParameterized (cypher : Cypher<'T>) = cypher.QueryNonParameterized
+    let rawQuery (cypher : Cypher<'T>) = cypher.RawQuery
     
     let query (cypher : Cypher<'T>) = cypher.Query
 
