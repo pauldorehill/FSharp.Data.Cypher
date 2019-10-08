@@ -20,6 +20,51 @@ type Query =
         let typ = o.GetType()
         typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Query<_>> 
 
+type private StepBuilder private (stepNo : int, steps : CypherStep list) =
+    member _.StepNo = stepNo
+    member _.Steps = steps
+    member this.Next (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
+    static member Init = StepBuilder(1, [])
+
+type private StatementBuilder(stepBuilder : StepBuilder) =
+    let mutable Prms = []
+    let mutable PrmCount = 1
+    let StepCount = stepBuilder.StepNo
+    let ParameterizedSb = new Text.StringBuilder()
+    let NonParameterizedSb = new Text.StringBuilder()
+    let AddParamterized (str : string) = ParameterizedSb.Append str |> ignore
+    let AddNonParamterized (str : string) = NonParameterizedSb.Append str |> ignore
+
+    member private this.GenerateKey() = 
+        let key = sprintf "step%iparam%i" StepCount PrmCount
+        PrmCount <- PrmCount + 1
+        AddParamterized "$"
+        AddParamterized key
+        key
+    
+    member private this.AddObj (o : obj) = 
+        AddNonParamterized (CypherStep.FixStringParameter o)
+        Prms <- (this.GenerateKey(), o) :: Prms
+
+    member this.AddPrimativeType expr =
+        QuotationEvaluator.EvaluateUntyped expr
+        |> Serialization.fixTypes
+        |> this.AddObj
+
+    member this.AddSerializedType expr =
+        QuotationEvaluator.EvaluateUntyped expr
+        :?> IFSEntity
+        |> Serialization.serialize
+        |> box
+        |> Some
+        |> this.AddObj
+
+    member _.AddStatement (stmt : string) =  
+        AddNonParamterized stmt
+        AddParamterized stmt
+
+    member this.Return = ParameterizedSb.ToString(), Prms
+
 module private MatchClause =
     
     // Use these since match statements aren't always happy with typeof<_>
@@ -66,10 +111,11 @@ module private MatchClause =
     
     // TODO : Need to now parameterize the values
     let makeRecordOrClass (varDic : VarDic) typ (exprs : Expr list) =
-        printfn "%A" exprs
+        
         let addPrimativeParam (o : obj) = 
-            fun fieldName key -> 
+            fun fieldName (key : string) -> 
                 //fieldName + ": " + key, Serialization.fixTypes o
+                
                 fieldName + ": " + CypherStep.FixStringParameter(o)
 
         let getValues expr =
@@ -112,11 +158,8 @@ module private MatchClause =
             | PropertyGet (None, ifs, []) -> ifs.Name
             | Var ifs -> ifs.Name
             | ValueWithName (_, _, name) -> name
-            // TODO : This is just a test
             | NewRecord (t, exprs) -> makeRecordOrClass varDic t exprs |> wrapCreateOfIFS
-            | NewObject(ci, exprs) -> 
-                printfn "%A" ci.DeclaringType
-                makeRecordOrClass varDic ci.DeclaringType exprs |> wrapCreateOfIFS
+            | NewObject (_, _) -> invalidOp "Classes are not yet supported" // Hard to support classes..
             | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
         
         inner expr
@@ -276,7 +319,11 @@ module private MatchClause =
             |> fun s -> Some (fResult left + s + fResult right)
         | _ -> None
 
-    let make (varDic : VarDic) expr =
+
+    let make (stepState : StepBuilder) (varDic : VarDic) expr =
+        
+        let stmBuilder = StatementBuilder(stepState)
+
         let rec inner (expr : Expr) =
             match expr with
             | GetConstructors (Rel.make varDic) typeofRel statement -> sprintf "[%s]" statement
@@ -310,67 +357,66 @@ module private ClauseHelpers =
 
 module private WhereAndSetStatement =
 
-    // this is how I was keying the params: need to pass down the step number, and then the param no in the step
-    //  let s = "step" + string (stepCount + 1) + "param" + string pCount
-    // Currently there are 1 based
-
     let [<Literal>] private IFSEntity = "IFSEntity"
 
-    let make (expr : Expr) =
-       
-        let addPrimativeParam o =
-            fun (key : string) -> key, Serialization.fixTypes o
-            |> Choice2Of2
-        
-        let addSerializedParam expr =
-            let o =
-                QuotationEvaluator.EvaluateUntyped expr
-                :?> IFSEntity
-                |> Serialization.serialize
-                |> box
-            fun (key : string) -> key, Some o
-            |> Choice2Of2
+    let make (stepState : StepBuilder) (expr : Expr) =
+
+        let stmBuilder = StatementBuilder(stepState)
+
+        let buildState fExpr left symbol right =    
+            fExpr left
+            stmBuilder.AddStatement symbol
+            fExpr right
 
         let (|Operator|_|) opExpr opSymbol fExpr expr =
             match expr with
             | SpecificCall opExpr (_, _, [ left; right ]) -> 
-                Some (fExpr left @ [ Choice1Of2(sprintf " %s " opSymbol) ] @ fExpr right)
+                Some (buildState fExpr left opSymbol right)
             | _ -> None
 
         let rec inner (expr : Expr) =
             match expr with
-            | Operator <@@ (=) @@> "=" inner statement
-            | Operator <@@ (<) @@> "<" inner statement
-            | Operator <@@ (<=) @@> "<=" inner statement
-            | Operator <@@ (>) @@> ">" inner statement
-            | Operator <@@ (>=) @@> ">=" inner statement
-            | Operator <@@ (<>) @@> "<>" inner statement -> statement
-            | IfThenElse (left, right, Value(_, _)) -> inner left @ [ Choice1Of2 " AND " ] @ inner right // Value(false) for AND
-            | IfThenElse (left, Value(_, _), right) -> inner left @ [ Choice1Of2 " OR " ] @ inner right // Value(true) for OR
+            | Operator <@@ (=) @@> " = " inner finalState
+            | Operator <@@ (<) @@> " < " inner finalState
+            | Operator <@@ (<=) @@> " <= " inner finalState
+            | Operator <@@ (>) @@> " > " inner finalState
+            | Operator <@@ (>=) @@> " >= " inner finalState
+            | Operator <@@ (<>) @@> " <> " inner finalState -> finalState
+            | IfThenElse (left, right, Value(_, _)) -> buildState inner left " AND " right
+            | IfThenElse (left, Value(_, _), right) -> buildState inner left " OR " right
             | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
-                let len = List.length exprs
-                exprs 
-                |> List.mapi (fun i e -> if i = len - 1 then inner e else inner e @ [ Choice1Of2 ", " ])
-                |> List.concat
+                exprs
+                |> List.iteri (fun i expr -> if i = 0 then inner expr else stmBuilder.AddStatement ", "; inner expr)
+            | NewUnionCase (_, [ singleCase ]) -> inner singleCase
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddPrimativeType expr
+            | NewArray (_, _) -> stmBuilder.AddPrimativeType expr
+            | Value (_, typ) -> 
+                if Deserialization.hasInterface typ IFSEntity 
+                then stmBuilder.AddSerializedType expr 
+                else stmBuilder.AddPrimativeType expr
                 
-            | NewUnionCase (ui, [singleCase]) -> inner singleCase
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ]
-            | NewArray (_, _) -> [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ] 
-            | Value (o, typ) -> if Deserialization.hasInterface typ IFSEntity then [ addSerializedParam expr ] else [ addPrimativeParam o ] // Also matches ValueWithName
-            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ] // Deeper than single "." used for options .Value
-            | PropertyGet (Some e, pi, _) -> inner e @  Choice1Of2 "." :: [ Choice1Of2 pi.Name ]
+            | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) -> 
+                inner e |> ignore
+                stmBuilder.AddStatement "." |> ignore
+                stmBuilder.AddStatement pi.Name
+            | PropertyGet (Some e, pi, _) -> 
+                inner e |> ignore
+                stmBuilder.AddStatement "." |> ignore
+                stmBuilder.AddStatement pi.Name
+                
             | PropertyGet (None, pi, _) -> 
                 if Deserialization.hasInterface pi.PropertyType IFSEntity 
-                then [ addSerializedParam expr ] 
-                else  [ QuotationEvaluator.EvaluateUntyped expr |> addPrimativeParam ]
-            | Var v -> [ Choice1Of2 v.Name ]
+                then stmBuilder.AddSerializedType expr 
+                else stmBuilder.AddPrimativeType expr
+            | Var v -> stmBuilder.AddStatement v.Name
             | Let (_, _, expr)
             | Lambda (_, expr) -> inner expr
             | _ -> 
                 sprintf "Un matched in WHERE/SET statement: %A" expr
                 |> invalidOp
-    
+        
         inner expr
+        stmBuilder.Return |> fst
 
 module private ReturnClause =
 
@@ -544,50 +590,50 @@ module CypherBuilder =
             inner expr
             varDic
 
-        let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+        let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                let statement = MatchClause.make varDic thisStep
-                let newState = NonParameterized (clause, statement) :: state
+                let statement = MatchClause.make state varDic thisStep
+                let newState = state.Next(NonParameterized (clause, statement))
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
-        let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+        let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                let statement = WhereAndSetStatement.make thisStep
-                let newState = Parameterized (clause, statement) :: state
+                let statement = WhereAndSetStatement.make state thisStep
+                let newState = state.Next(NonParameterized (clause, statement))
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
         let mutable returnStatement : ReturnContination<'T> = NoReturnClause
                 
-        let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+        let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                 let (statement, continuation) = ReturnClause.make<'T> thisStep
-                let newState = NonParameterized (clause, statement) :: state
+                let newState = state.Next(NonParameterized (clause, statement))
                 returnStatement <- returnStatement.Update continuation
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
-        let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+        let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                 let statement = BasicClause.make thisStep
-                let newState = NonParameterized (clause, statement) :: state
+                let newState = state.Next(NonParameterized (clause, statement))
                 Some (fExpr newState stepAbove)
             | _ -> None
                 
-        let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : CypherStep list) fExpr (expr : Expr) =
+        let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
             match expr with
             | SpecificCall callExpr (_, _, [ stepAbove ]) -> 
-                let newState = ClauseOnly clause :: state
+                let newState = state.Next(ClauseOnly clause)
                 Some (fExpr newState stepAbove)
             | _ -> None
 
         let buildQry (expr : Expr) =
-            let rec inner (state : CypherStep list) (expr : Expr) =
+            let rec inner (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall <@ cypher.Yield @> _ -> state
                 | SpecificCall <@ cypher.For @> (_, _, _) -> state
@@ -610,9 +656,9 @@ module CypherBuilder =
                 | Basic <@ cypher.DELETE @> DELETE state inner stepList -> stepList
                 | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp 
 
-            inner [] expr, returnStatement.Value
+            inner StepBuilder.Init expr 
 
-        Cypher(buildQry expr)
+        Cypher((buildQry expr).Steps, returnStatement.Value)
             
     type CypherBuilder with
         member _.Quote (query : Expr<Query<'T>>) = NA

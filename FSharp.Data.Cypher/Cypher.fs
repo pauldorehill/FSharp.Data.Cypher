@@ -119,10 +119,14 @@ module TransactionResult =
     
     let asyncRollback (tr : TransactionResult<'T>) = tr.AsyncRollback()
 
+type Statement =
+    | NoParams of string
+    | Params of (string -> (string * obj option))
+
 type CypherStep =
     | ClauseOnly of Clause : Clause
     | NonParameterized of Clause : Clause * Statement : string
-    | Parameterized of Clause : Clause * Statement : Choice<string,string -> (string * obj option)> list
+    | Parameterized of Clause : Clause * Statement : Statement list
     member this.Clause =
         match this with
         | ClauseOnly c -> c
@@ -136,25 +140,27 @@ type CypherStep =
             if typ = typeof<string> then o :?> string |> CypherStep.FixStringParameter
             elif typ = typeof<bool> then (o :?> bool).ToString().ToLower()
             else string o
-     static member Paramkey = "$"
+    static member Paramkey = "$"
    
 module CypherStep =
     
+    let keyGenerator (stepCount : int) (paramCount : int) = "step" + string stepCount + "param" + string paramCount
+
     // I think need to get away from this, by passing the stepIndex down inthe Query:
     // can then avoid all the list concats
     let buildQuery (steps : CypherStep list) =
         let mutable prmList = List.Empty
-        let makeParms (c : Clause) (stepCount : int) (prms : Choice<string,string -> (string * obj option)> list) =
+        let makeParms (c : Clause) (stepCount : int) (stms : Statement list) =
             let mutable pCount = 1
-            prms
+            stms
             |> List.map (fun x ->
                 match x with
-                | Choice1Of2 s -> s
-                | Choice2Of2 f -> 
-                    let s = "step" + string (stepCount + 1) + "param" + string pCount
+                | NoParams s -> s
+                | Params f -> 
+                    let key = keyGenerator (stepCount + 1) pCount
                     pCount <- pCount + 1
-                    prmList <- f s :: prmList
-                    CypherStep.Paramkey + s)
+                    prmList <- f key :: prmList
+                    CypherStep.Paramkey + key)
             |> String.concat ""
             |> sprintf "%s %s" (string c)
 
@@ -166,7 +172,7 @@ module CypherStep =
             | NonParameterized (c, s) ->
                 // TODO: This is removing empty statements. Do something better...as this relates to the requirement for RETURN...
                 if s = "" then None else Some (sprintf "%s %s" (string c) s)
-            | Parameterized (c, prms) -> Some (makeParms c stepIndex prms))
+            | Parameterized (c, stms) -> Some (makeParms c stepIndex stms))
         |> fun s -> s, prmList
 
 type Cypher<'T>(querySteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
