@@ -20,6 +20,7 @@ type NodeLabel(label : string) =
     member _.Value = Label.Make label
     override this.ToString() = this.Value
 
+// Neo technically calls these Type, however the use of type is a bit confusing so label has been used.
 [<Sealed; NoComparison; NoEquality>]
 type RelLabel(label : string) = 
     member _.Value = Label.Make label

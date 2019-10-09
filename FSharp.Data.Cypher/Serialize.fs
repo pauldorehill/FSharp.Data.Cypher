@@ -7,11 +7,9 @@ open FSharp.Reflection
 open Neo4j.Driver.V1
 
 module Deserialization =
-
+    
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
-    let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
-    
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let checkCollection<'T> (rtnObj : obj) =
         if isNull rtnObj then Seq.empty
@@ -38,8 +36,7 @@ module Deserialization =
 
         let nullCheck (obj : obj) = 
             if isNull obj then
-                localType.Name
-                |> sprintf "A null object was returned for %s on type %A" name
+                sprintf "A null object was returned for %s on type %A" name localType.Name
                 |> ArgumentNullException
                 |> raise
             else obj
