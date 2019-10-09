@@ -99,269 +99,291 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
 module private MatchClause =
     
-    // Use these since match statements aren't always happy with typeof<_>
-    let typeofNode = typeof<Node>
-    let typeofRel = typeof<Rel>
-    let typeofIFSNode = typeof<IFSNode>
-    let typeofIFSRelationship = typeof<IFSRelationship>
-    let typeofNodeLabel = typeof<NodeLabel>
-    let typeofNodeLabelList = typeof<NodeLabel list>
-    let typeofRelLabel = typeof<RelLabel>
-    let typeofUInt32 = typeof<uint32>
-    let typeofUInt32List = typeof<uint32 list>
-    
-    let extractObject (varDic : VarDic) (expr : Expr) =
-        match expr with
-        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
-        | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
-        | Value (obj, _) -> obj
-        | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-        | SpecificCall <@ List.map @> (_, _, _)
-        | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
-        | PropertyGet (Some (Var var), pi, []) ->
-            let expr = varDic.[var.Name]
-            let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-            // Need to catch case when there is a let binding to create an object,
-            // followed by a call to a property on that object. Need to handle the params
-            // order much like in record creation code
-            let rec inner expr =
-                match expr with
-                | Let (_, _, expr) -> inner expr
-                | NewRecord (_, _) -> pi.GetValue varObj
-                | _ ->
-                    // In this case the obj is actually NA of the union type Query<'T> = NA
-                    // so will need to create an instance of it and call the static member
-                    if Query.IsTypeDefOf varObj
-                    then 
-                        Deserialization.createNullRecordOrClass var.Type
-                        |> pi.GetValue
-                    else varObj
-
-            inner expr
-
-        | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
-    
-    // TODO : Need to now parameterize the values
-    let makeRecordOrClass (varDic : VarDic) typ (exprs : Expr list) =
-        
-        let addPrimativeParam (o : obj) = 
-            fun fieldName (key : string) -> 
-                //fieldName + ": " + key, Serialization.fixTypes o
-                
-                fieldName + ": " + StatementBuilder.FixStringParameter(o)
-                //invalidOp "Not made yet"
-
-        let getValues expr =
-            match expr with
-            | Var v -> 
-                QuotationEvaluator.EvaluateUntyped varDic.[v.Name]
-                |> addPrimativeParam
-                |> Some
-            | Value (o, _) -> addPrimativeParam o |> Some
-            | PropertyGet (Some _, _, _) -> None
-            | PropertyGet (None, _, _) -> 
-                QuotationEvaluator.EvaluateUntyped expr
-                |> addPrimativeParam
-                |> Some
-            | NewUnionCase (ui, _) when Deserialization.isOption ui.DeclaringType ->
-                QuotationEvaluator.EvaluateUntyped expr
-                |> addPrimativeParam
-                |> Some
-
-            | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
-
-        let fieldValues = List.map getValues exprs
-        
-        Deserialization.getProperties typ
-        |> Array.indexed
-        |> Array.choose (fun (i, pi) -> fieldValues.[i] |> Option.map (fun f -> f pi.Name))
-
-    let wrapCreateOfIFS xs =
-        xs
-        |> Array.toList
-        |> List.map (fun f -> f "")
-        |> String.concat ", "
-        |> sprintf "{%s}"
-
-    let makeIFS (varDic : VarDic) (expr : Expr) =
-        let rec inner (expr : Expr) =
-            match expr with
-            | Coerce (expr, _) -> inner expr
-            | Let (_, _, exprNext) -> inner exprNext
-            | PropertyGet (None, ifs, []) -> ifs.Name
-            | Var ifs -> ifs.Name
-            | ValueWithName (_, _, name) -> name
-            | NewRecord (t, exprs) -> makeRecordOrClass varDic t exprs |> wrapCreateOfIFS
-            | NewObject (_, _) -> invalidOp "Classes are not yet supported" // Hard to support classes..
-            | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
-        
-        inner expr
-
-    let makePathHops (varDic : VarDic) (expr : Expr) =
-        
-        let makeStatement startValue endValue =
-            if endValue = UInt32.MaxValue then sprintf "*%i.." startValue
-            else sprintf "*%i..%i" startValue endValue
-
-        let (|GetRange|_|) (expr : Expr) =
-            match expr with
-            | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
-                let startValue = extractObject varDic expr1 :?> uint32
-                let endValue = extractObject varDic expr2 :?> uint32
-                Some (makeStatement startValue endValue)
- 
-            | _ -> None
-
-        let (|IsCreateSeq|_|) (expr : Expr) =
-            match expr with
-            | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ]) 
-                when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
-            | _ -> None
-
-        let makeListRng xs = List.min xs, List.max xs
-
-        let makeListFromExpr (expr : Expr) =
-            QuotationEvaluator.EvaluateUntyped expr 
-            :?> uint32 list 
-            |> makeListRng
-            ||> makeStatement
-
-        let singleInt i = sprintf "*%i" i
-
-        let (|SingleInt|_|) (expr : Expr) =
-            match expr with
-            | Var var when var.Type = typeofUInt32 -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
-            | Value (o, t) when t =typeofUInt32 -> Some o 
-            | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject varDic expr |> Some
-            | _ -> None
-
-        let (|IntList|_|) (expr : Expr) =
-            match expr with
-            | Var var when var.Type = typeofUInt32List -> makeListFromExpr varDic.[var.Name] |> Some
-            | Value (_, t) when t = typeofUInt32List -> makeListFromExpr expr |> Some
-            | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32List -> 
-                extractObject varDic expr 
-                :?> uint32 list 
-                |> makeListRng 
-                ||> makeStatement
-                |> Some
-            | _ -> None
-
-        let (|ListCons|_|) (expr : Expr) =
-            match expr with
-            | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some (makeListFromExpr expr)
-            | _ -> None
-
-        match expr with
-        | UInt32 i -> singleInt i
-        | SingleInt o -> o :?> uint32 |> singleInt
-        | IntList s -> s
-        | ListCons statement
-        | IsCreateSeq (GetRange statement) -> statement
-        | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
-
-    let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
-        match ctrTypes, ctrExpr with
-        | [||], [] -> Some ()
-        | _ -> None
-    
-    let (|SingleParam|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
-        match ctrTypes, ctrExpr with
-        | ctr, [ param ] when ctr = paramTypes -> Some param
-        | _ -> None
-    
-    let (|TwoParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
-        match ctrTypes, ctrExpr with
-        | ctr, [ param1; param2 ] when ctr = paramTypes -> Some (param1, param2)
-        | _ -> None
-    
-    let (|ThreeParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
-        match ctrTypes, ctrExpr with
-        | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some (param1, param2, param3)
-        | _ -> None
-
-    module Rel =
-
-        let makeRelLabel (varDic : VarDic) (expr : Expr) =
-            let rec inner (expr : Expr) =
-                match expr with
-                | SpecificCall <@ (/) @> (_, _, xs) -> List.sumBy inner xs
-                | _ -> extractObject varDic expr :?> RelLabel
-            inner expr |> string
-
-        let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
-            match ctrTypes, ctrExpr with
-            | NoParams -> ""
-            | SingleParam [| typeofIFSRelationship |] param -> makeIFS varDic param
-            | SingleParam [| typeofRelLabel |] param  -> makeRelLabel varDic param
-            | SingleParam [| typeofUInt32 |] param
-            | SingleParam [| typeofUInt32List |] param -> makePathHops varDic param
-            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> 
-                makeIFS varDic param1 + makeRelLabel varDic param2
-            | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) -> 
-                makeRelLabel varDic param1 + makePathHops varDic param2
-            | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> 
-                makeRelLabel varDic param1 + makePathHops varDic param2
-            | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
-                makeIFS varDic param1 + makeRelLabel varDic param2 + " " + makeIFS varDic param3
-            | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
-            |> sprintf "[%s]" 
-
-    module Node =
-
-        let makeNodeLabelList (varDic : VarDic) (expr : Expr) =
-            match expr with
-            | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> extractObject varDic expr :?> NodeLabel list
-            |> List.map string 
-            |> String.concat ""
-
-        let make (varDic : VarDic) (ctrTypes : Type []) (ctrExpr : Expr list) =
-            match ctrTypes, ctrExpr with
-            | NoParams -> ""
-            | SingleParam [| typeofNodeLabel |] param -> 
-                extractObject varDic param :?> NodeLabel |> string
-            | SingleParam [| typeofNodeLabelList |] param -> 
-                makeNodeLabelList varDic param
-            | SingleParam [| typeofIFSNode |] param -> 
-                makeIFS varDic param
-            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> 
-                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string)
-            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> 
-                makeIFS varDic param1 + makeNodeLabelList varDic param2
-            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> 
-                makeIFS varDic param1 + " " + makeIFS varDic param2
-            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> 
-                makeIFS varDic param1 + (extractObject varDic param2 :?> NodeLabel |> string) + " " + makeIFS varDic param3
-            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
-                makeIFS varDic param1 + makeNodeLabelList varDic param2 + " " + makeIFS varDic param3
-            | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
-            |> sprintf "(%s)" 
-
-    let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
-        let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
-        match expr with
-        | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some (fResult (getCtrParamsTypes ci) paramsExpr)
-        | _ -> None
-
-    let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
-        match expr with
-        | SpecificCall operatorExpr (_, _, [ left; right ]) ->
-            match left, right with
-            | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeofNode && ci2.DeclaringType = typeof<Node> -> 
-                if symbol = "<-" then symbol + "-" else "-" + symbol
-            | _ -> symbol
-            |> fun s -> Some (fResult left + s + fResult right)
-        | _ -> None
-
     let make (stepState : StepBuilder) (clause : Clause) (varDic : VarDic) expr =
         
         let stmBuilder = StatementBuilder(clause, stepState)
 
+        // Use these since match statements aren't always happy with typeof<_>
+        let typeofNode = typeof<Node>
+        let typeofRel = typeof<Rel>
+        let typeofIFSNode = typeof<IFSNode>
+        let typeofIFSRelationship = typeof<IFSRelationship>
+        let typeofNodeLabel = typeof<NodeLabel>
+        let typeofNodeLabelList = typeof<NodeLabel list>
+        let typeofRelLabel = typeof<RelLabel>
+        let typeofUInt32 = typeof<uint32>
+        let typeofUInt32List = typeof<uint32 list>
+    
+        let extractObject (expr : Expr) =
+            match expr with
+            | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
+            | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
+            | Value (obj, _) -> obj
+            | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+            | SpecificCall <@ List.map @> (_, _, _)
+            | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
+            | PropertyGet (Some (Var var), pi, []) ->
+                let expr = varDic.[var.Name]
+                let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+                // Need to catch case when there is a let binding to create an object,
+                // followed by a call to a property on that object. Need to handle the params
+                // order much like in record creation code
+                let rec inner expr =
+                    match expr with
+                    | Let (_, _, expr) -> inner expr
+                    | NewRecord (_, _) -> pi.GetValue varObj
+                    | _ ->
+                        // In this case the obj is actually NA of the union type Query<'T> = NA
+                        // so will need to create an instance of it and call the static member
+                        if Query.IsTypeDefOf varObj
+                        then 
+                            Deserialization.createNullRecordOrClass var.Type
+                            |> pi.GetValue
+                        else varObj
+
+                inner expr
+
+            | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
+    
+        let makeIFS (expr : Expr) =
+        
+            let makeRecordOrClass typ (exprs : Expr list) =
+            
+                let getValues expr =
+                    match expr with
+                    | Var v -> Choice1Of3 varDic.[v.Name]
+                    | Value (o, _) -> Choice2Of3 o
+                    | PropertyGet (Some _, _, _) -> Choice3Of3 ()
+                    | PropertyGet (None, _, _) -> Choice1Of3 expr
+                    | NewUnionCase (ui, _) when Deserialization.isOption ui.DeclaringType -> Choice1Of3 expr
+                    | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
+
+                let fieldValues = List.map getValues exprs
+            
+                let build i (pi : PropertyInfo) =    
+                    let name () =
+                        if i <> 0 then stmBuilder.AddStatement ", "
+                        stmBuilder.AddStatement pi.Name
+                        stmBuilder.AddStatement ": "
+
+                    match fieldValues.[i] with
+                    | Choice1Of3 expr -> 
+                        name ()
+                        stmBuilder.AddPrimativeType expr
+                    | Choice2Of3 o -> 
+                        name ()
+                        stmBuilder.AddObj o
+                    | Choice3Of3 _ -> ()
+
+                stmBuilder.AddStatement "{"
+
+                Deserialization.getProperties typ
+                |> Array.iteri build
+
+                stmBuilder.AddStatement "}"
+
+            let rec inner (expr : Expr) =
+                match expr with
+                | Coerce (expr, _) -> inner expr
+                | Let (_, _, expr) -> inner expr
+                | PropertyGet (None, ifs, []) -> stmBuilder.AddStatement ifs.Name
+                | Var ifs -> stmBuilder.AddStatement ifs.Name
+                | ValueWithName (_, _, name) -> stmBuilder.AddStatement name
+                | NewRecord (typ, exprs) -> makeRecordOrClass typ exprs
+                | NewObject (_, _) -> invalidOp "Classes are not yet supported" // Hard to support classes..
+                | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
+        
+            inner expr
+
+        let makePathHops (expr : Expr) =
+        
+            let makeStatement startValue endValue =
+                if endValue = UInt32.MaxValue then sprintf "*%i.." startValue
+                else sprintf "*%i..%i" startValue endValue
+
+            let (|GetRange|_|) (expr : Expr) =
+                match expr with
+                | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
+                    let startValue = extractObject expr1 :?> uint32
+                    let endValue = extractObject expr2 :?> uint32
+                    Some (makeStatement startValue endValue)
+ 
+                | _ -> None
+
+            let (|IsCreateSeq|_|) (expr : Expr) =
+                match expr with
+                | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ]) 
+                    when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
+                | _ -> None
+
+            let makeListRng xs = List.min xs, List.max xs
+
+            let makeListFromExpr (expr : Expr) =
+                QuotationEvaluator.EvaluateUntyped expr 
+                :?> uint32 list 
+                |> makeListRng
+                ||> makeStatement
+
+            let singleInt i = sprintf "*%i" i
+
+            let (|SingleInt|_|) (expr : Expr) =
+                match expr with
+                | Var var when var.Type = typeofUInt32 -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
+                | Value (o, t) when t =typeofUInt32 -> Some o 
+                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject expr |> Some
+                | _ -> None
+
+            let (|IntList|_|) (expr : Expr) =
+                match expr with
+                | Var var when var.Type = typeofUInt32List -> makeListFromExpr varDic.[var.Name] |> Some
+                | Value (_, t) when t = typeofUInt32List -> makeListFromExpr expr |> Some
+                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32List -> 
+                    extractObject expr 
+                    :?> uint32 list 
+                    |> makeListRng 
+                    ||> makeStatement
+                    |> Some
+                | _ -> None
+
+            let (|ListCons|_|) (expr : Expr) =
+                match expr with
+                | NewUnionCase (ui, _) when ui.Name = "Cons" -> Some (makeListFromExpr expr)
+                | _ -> None
+
+            match expr with
+            | UInt32 i -> singleInt i
+            | SingleInt o -> o :?> uint32 |> singleInt
+            | IntList s -> s
+            | ListCons statement
+            | IsCreateSeq (GetRange statement) -> statement
+            | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
+            |> stmBuilder.AddStatement
+
+        let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+            match ctrTypes, ctrExpr with
+            | [||], [] -> Some ()
+            | _ -> None
+    
+        let (|SingleParam|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+            match ctrTypes, ctrExpr with
+            | ctr, [ param ] when ctr = paramTypes -> Some param
+            | _ -> None
+    
+        let (|TwoParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+            match ctrTypes, ctrExpr with
+            | ctr, [ param1; param2 ] when ctr = paramTypes -> Some (param1, param2)
+            | _ -> None
+    
+        let (|ThreeParams|_|) paramTypes ((ctrTypes : Type []), (ctrExpr : Expr list)) =    
+            match ctrTypes, ctrExpr with
+            | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some (param1, param2, param3)
+            | _ -> None
+
+        let makeRelLabel (expr : Expr) =
+            let rec inner (expr : Expr) =
+                match expr with
+                | SpecificCall <@ (/) @> (_, _, xs) -> List.sumBy inner xs
+                | _ -> extractObject expr :?> RelLabel
+
+            inner expr 
+            |> string
+            |> stmBuilder.AddStatement
+
+        let makeRel (ctrTypes : Type []) (ctrExpr : Expr list) =
+            stmBuilder.AddStatement "["
+
+            match ctrTypes, ctrExpr with
+            | NoParams -> ()
+            | SingleParam [| typeofIFSRelationship |] param -> makeIFS param
+            | SingleParam [| typeofRelLabel |] param  -> makeRelLabel param
+            | SingleParam [| typeofUInt32 |] param
+            | SingleParam [| typeofUInt32List |] param -> makePathHops param
+            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) -> 
+                makeIFS param1
+                makeRelLabel param2
+            | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) -> 
+                makeRelLabel param1
+                makePathHops param2
+            | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) -> 
+                makeRelLabel param1
+                makePathHops param2
+            | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
+                makeIFS param1
+                makeRelLabel param2
+                stmBuilder.AddStatement " "
+                makeIFS param3
+            | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
+            
+            stmBuilder.AddStatement "]"
+
+
+        let makeNodeLabelList (expr : Expr) =
+            match expr with
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
+            | _ -> extractObject expr :?> NodeLabel list
+            |> List.iter (string >> stmBuilder.AddStatement) 
+
+        let makeNodeLabel expr =
+            extractObject expr 
+            :?> NodeLabel 
+            |> string
+            |> stmBuilder.AddStatement
+
+        let makeNode (ctrTypes : Type []) (ctrExpr : Expr list) =
+            stmBuilder.AddStatement "("
+            match ctrTypes, ctrExpr with
+            | NoParams -> ()
+            | SingleParam [| typeofNodeLabel |] param -> makeNodeLabel param
+            | SingleParam [| typeofNodeLabelList |] param ->  makeNodeLabelList param
+            | SingleParam [| typeofIFSNode |] param -> makeIFS param
+            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) -> 
+                makeIFS param1
+                makeNodeLabel param2
+            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) -> 
+                makeIFS param1
+                makeNodeLabelList param2
+            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) -> 
+                makeIFS param1
+                stmBuilder.AddStatement " "
+                makeIFS param2
+            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) -> 
+                makeIFS param1
+                makeNodeLabel param2
+                stmBuilder.AddStatement " "
+                makeIFS param3
+            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) -> 
+                makeIFS param1
+                makeNodeLabelList param2
+                stmBuilder.AddStatement " "
+                makeIFS param3
+            | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp 
+            
+            stmBuilder.AddStatement ")"
+
+        let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
+            let getCtrParamsTypes (ci : ConstructorInfo) = ci.GetParameters() |> Array.map (fun x -> x.ParameterType)
+            match expr with
+            | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> Some (fResult (getCtrParamsTypes ci) paramsExpr)
+            | _ -> None
+
+        let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
+            match expr with
+            | SpecificCall operatorExpr (_, _, [ left; right ]) ->
+                match left, right with
+                | Coerce (NewObject (ci1, _), _), Coerce (NewObject (ci2, _), _) when ci1.DeclaringType = typeofNode && ci2.DeclaringType = typeof<Node> -> 
+                    if symbol = "<-" then symbol + "-" else "-" + symbol
+                | _ -> symbol
+                |> fun symbol -> 
+                    fResult left
+                    stmBuilder.AddStatement symbol
+                    fResult right
+                    Some ()
+            | _ -> None
+
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors (Rel.make varDic) typeofRel statement 
-            | GetConstructors (Node.make varDic) typeofNode statement -> statement
+            | GetConstructors makeRel typeofRel statement 
+            | GetConstructors makeNode typeofNode statement -> statement
             | BuildJoin <@ ( -- ) @> "-" inner statement
             | BuildJoin <@ ( --> ) @> "->" inner statement 
             | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
@@ -373,8 +395,7 @@ module private MatchClause =
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from Exprssion: %A" expr)
     
         inner expr
-        |> stmBuilder.AddStatement
-
+        
         stepState.Add(stmBuilder.Build)
  
 module private WhereAndSetStatement =
