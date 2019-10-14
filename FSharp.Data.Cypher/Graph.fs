@@ -1,6 +1,6 @@
 ﻿namespace FSharp.Data.Cypher
 
-type IFSEntity = interface end
+//type IFSEntity = interface end
 
 /// Marker interface for a type that is a Node
 type IFSNode = interface end
@@ -38,7 +38,6 @@ type RelLabel(label : string) =
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
 type Rel() =
-    interface IFSEntity
     /// Match a Relationship and bind it to the variable name
     new(relationship : IFSRelationship) = Rel()
 
@@ -77,7 +76,6 @@ type Rel<'R>() =
 /// Match any Node
 [<Sealed; NoComparison; NoEquality>]
 type Node() =
-    interface IFSEntity
     /// Match a Node with the label, do not bind to any variable name
     new(label : NodeLabel) = Node()
 
@@ -105,16 +103,15 @@ type Node() =
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
     new(node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
-    static member ( -- ) (n1 : Node, n2 : Node) = n2
+    static member ( ---- ) (n1 : Node, n2 : Node) = n2
     static member ( -- ) (n : Node, r : Rel) = r
     static member ( -- ) (r : Rel, n : Node) = n
-    static member ( --> ) (node1 : Node, node2 : Node) = node2
+    static member ( ----> ) (node1 : Node, node2 : Node) = node2
     static member ( --> ) (n : Node, r : Rel) = r
     static member ( --> ) (r : Rel, n : Node) = n
-    static member ( <-- ) (n1 : Node, n2 : Node) = n1
-    static member ( <-- ) (n : Node, r : Rel) = n
-    static member ( <-- ) (r : Rel, n : Node) = r
-
+    static member ( <---- ) (n1 : Node, n2 : Node) = n1
+    static member ( <-- ) (n : Node, r : Rel) = r
+    static member ( <-- ) (r : Rel, n : Node) = n
 
 type Node<'N>() = 
     static member internal IsTypeDefOf (o : obj) =
@@ -128,8 +125,14 @@ module Ascii =
     // Quotations cannot contain expressions that make member constraint calls, 
     // or uses of operators that implicitly resolve to a member constraint call
 
-    let inline ( -- ) (graphEntity : #IFSEntity) (graphEntity2 : #IFSEntity) = graphEntity2
+    let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1 -- graphEntity2
     
-    let inline ( --> ) (graphEntity : #IFSEntity) (graphEntity2 : #IFSEntity) = graphEntity2
+    let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1 --> graphEntity2
     
-    let inline ( <-- ) (graphEntity : #IFSEntity) (graphEntity2 : IFSEntity) = graphEntity
+    let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1 <-- graphEntity2
+    
+    let inline ( ---- ) node1 node2 = node1 ---- node2
+    
+    let inline ( ----> ) node1 node2 = node1 ----> node2
+    
+    let inline ( <---- ) node1 node2 = node1 <---- node2

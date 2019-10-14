@@ -48,17 +48,17 @@ module Node =
         let ``Two Nodes --`` () =
 
             cypher {
-                MATCH (Node() -- Node())
+                MATCH (Node() ---- Node())
                 RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()--()", q)
-            
+
         [<Fact>]
         let ``Two Nodes -->`` () =
 
             cypher {
-                MATCH (Node() --> Node())
+                MATCH (Node() ----> Node())
                 RETURN ()
             }
             |> Cypher.rawQuery
@@ -68,11 +68,21 @@ module Node =
         let ``Two Nodes <--`` () =
 
             cypher {
-                MATCH (Node() <-- Node())
+                MATCH (Node() <---- Node())
                 RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()<--()", q)
+        
+        [<Fact>]
+        let ``Complex sequence of Nodes`` () =
+
+            cypher {
+                MATCH (Node() <---- Node() ---- Node() ----> Node() <---- Node())
+                RETURN ()
+            }
+            |> Cypher.rawQuery
+            |> fun q -> Assert.Equal(rtnSt "()<--()--()-->()<--()", q)
     
     module ``Single Parameter Constructor`` =
 

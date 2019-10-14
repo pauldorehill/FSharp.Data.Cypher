@@ -78,7 +78,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
     member this.AddSerializedType expr =
         QuotationEvaluator.EvaluateUntyped expr
-        :?> IFSEntity
+        //:?> IFSEntity
         |> Serialization.serialize
         |> box
         |> Some
@@ -91,6 +91,30 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     member this.Build = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
 
 module private MatchClause =
+
+    type private Operators =
+        | OpMMMM
+        | OpLMMMM
+        | OpMMMMG
+        | OpMM
+        | OpLMM
+        | OpMMG
+        member this.Name =
+            match this with
+            | OpMMMM -> "op_MinusMinusMinusMinus"
+            | OpLMMMM -> "op_LessMinusMinusMinusMinus"
+            | OpMMMMG -> "op_MinusMinusMinusMinusGreater"
+            | OpMM -> "op_MinusMinus"
+            | OpLMM -> "op_LessMinusMinus"
+            | OpMMG -> "op_MinusMinusGreater"
+        override this.ToString() =
+            match this with
+            | OpMMMM -> "--"
+            | OpLMMMM -> "<--"
+            | OpMMMMG -> "-->"
+            | OpMM -> "-"
+            | OpLMM -> "<-"
+            | OpMMG -> "->"
 
     let make (stepState : StepBuilder) (clause : Clause) (varDic : VarDic) expr =
 
@@ -360,22 +384,15 @@ module private MatchClause =
                 Some (fResult ctTypes paramsExpr)
             | _ -> None
 
-        let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
 
-            let isNode (ci : ConstructorInfo) = ci.DeclaringType = typeofNode
 
+        let (|BuildJoin|_|) (operator : Operators) fResult expr =
             match expr with
-            | SpecificCall operatorExpr (_, _, [ left; right ]) ->
-                match left, right with
-                | NewObject (ci1, _), NewObject (ci2, _)
-                | NewObject (ci1, _), Coerce (NewObject (ci2, _), _) when isNode ci1 && isNode ci2 ->
-                    if symbol = "<-" then symbol + "-" else "-" + symbol
-                | _ -> symbol
-                |> fun symbol ->
-                    fResult left
-                    stmBuilder.AddStatement symbol
-                    fResult right
-                    Some ()
+            | Call (_, mi, [ left; right ]) when mi.Name = operator.Name ->
+                fResult left
+                stmBuilder.AddStatement (string operator)
+                fResult right
+                Some ()
             | _ -> None
 
         let rec inner (expr : Expr) =
@@ -384,11 +401,14 @@ module private MatchClause =
             | Let (_, _, expr)
             | TupleGet (expr, _)
             | Lambda (_, expr) -> inner expr
-            | GetConstructors makeRel typeofRel statement
-            | GetConstructors makeNode typeofNode statement -> statement
-            | BuildJoin <@ ( -- ) @> "-" inner statement
-            | BuildJoin <@ ( --> ) @> "->" inner statement
-            | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
+            | GetConstructors makeRel typeofRel rtn
+            | GetConstructors makeNode typeofNode rtn
+            | BuildJoin OpMMMM inner rtn
+            | BuildJoin OpLMMMM inner rtn
+            | BuildJoin OpMMMMG inner rtn
+            | BuildJoin OpMM inner rtn
+            | BuildJoin OpLMM inner rtn
+            | BuildJoin OpMMG inner rtn -> rtn
             | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the MATCH statement" v.Name)
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
 
@@ -398,9 +418,12 @@ module private MatchClause =
 
 module private WhereAndSetStatement =
 
-    let [<Literal>] private IFSEntity = "IFSEntity"
+    let [<Literal>] private IFSNode = "IFSNode"
+    let [<Literal>] private IFSRelationship = "IFSRelationship"
 
     let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
+
+    let isIFS (typ : Type) = hasInterface typ IFSNode || hasInterface typ IFSRelationship
 
     let make (stepState : StepBuilder) clause (expr : Expr) =
 
@@ -439,7 +462,7 @@ module private WhereAndSetStatement =
             | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddPrimativeType expr
             | NewArray (_, _) -> stmBuilder.AddPrimativeType expr
             | Value (_, typ) ->
-                if hasInterface typ IFSEntity
+                if isIFS typ
                 then stmBuilder.AddSerializedType expr
                 else stmBuilder.AddPrimativeType expr
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) ->
@@ -451,7 +474,7 @@ module private WhereAndSetStatement =
                 stmBuilder.AddStatement "."
                 stmBuilder.AddStatement pi.Name
             | PropertyGet (None, pi, _) ->
-                if hasInterface pi.PropertyType IFSEntity
+                if isIFS pi.PropertyType
                 then stmBuilder.AddSerializedType expr
                 else stmBuilder.AddPrimativeType expr
             | Var v -> stmBuilder.AddStatement v.Name

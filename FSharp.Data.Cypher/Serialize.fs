@@ -219,22 +219,22 @@ module Serialization =
                 |> sprintf "Unsupported property/value: %s. Type: %A" typ.Name
                 |> invalidOp
 
-    let serialize (e : #IFSEntity) =
-        let typ = e.GetType()
+    let serialize (o : obj) =
+        let typ = o.GetType()
         typ
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
-            match fixTypes (pi.GetValue e) with
+            match fixTypes (pi.GetValue o) with
             | Some o -> Some (pi.Name , o)
             | None -> None)
         |> Map.ofArray
         |> Generic.Dictionary
 
-    let makeIEntity (fsNode : #IFSEntity) = 
-        { new IEntity with 
-            member _.Id = invalidOp "Fake Entity."
-            member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
-            member _.Properties = invalidOp "Fake Entity." }
+    //let makeIEntity (fsNode : #IFSEntity) = 
+    //    { new IEntity with 
+    //        member _.Id = invalidOp "Fake Entity."
+    //        member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
+    //        member _.Properties = invalidOp "Fake Entity." }
     
     let makeINode (fsNode : #IFSNode) = 
         { new INode with 
