@@ -14,22 +14,8 @@ type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
 [<NoComparison; NoEquality>]
 type Query<'T,'Result> =
+    private 
     | NA
-
-type private Query =
-    static member IsTypeDefOf (o : obj) =
-        let typ = o.GetType()
-        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Query<_,_>>
-
-type private Node = 
-    static member IsTypeDefOf (o : obj) =
-        let typ = o.GetType()
-        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Node<_>>
-
-type private Rel = 
-    static member IsTypeDefOf (o : obj) =
-        let typ = o.GetType()
-        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Rel<_>>
 
 type private StepBuilder private (stepNo : int, steps : CypherStep list) =
     member _.StepNo = stepNo
@@ -111,8 +97,8 @@ module private MatchClause =
         let stmBuilder = StatementBuilder(clause, stepState)
 
         // Use these since match statements aren't always happy with typeof<_>
-        let typedefofNode = typedefof<Node<_>>
-        let typeofRel = typedefof<Rel<_>>
+        let typeofNode = typeof<Node>
+        let typeofRel = typeof<Rel>
         let typeofIFSNode = typeof<IFSNode>
         let typeofIFSRelationship = typeof<IFSRelationship>
         let typeofNodeLabel = typeof<NodeLabel>
@@ -140,8 +126,7 @@ module private MatchClause =
                     | Let (_, _, expr) -> inner expr
                     | NewRecord (_, _) -> pi.GetValue varObj
                     | _ ->
-                        
-                        // In this case the obj is actually NA of the union type Query<'T> = NA
+                        // In this case the obj is actually Node<'N> or Rel<'R>
                         // so will need to create an instance of it and call the static member
                         if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj
                         then
@@ -368,7 +353,7 @@ module private MatchClause =
 
         let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
             match expr with
-            | NewObject (ci, paramsExpr) when ci.DeclaringType.GetGenericTypeDefinition() = typ.GetGenericTypeDefinition() -> 
+            | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> 
                 let ctTypes =   
                     ci.GetParameters() 
                     |> Array.map (fun x -> x.ParameterType)
@@ -377,8 +362,7 @@ module private MatchClause =
 
         let (|BuildJoin|_|) operatorExpr (symbol : string) fResult expr =
 
-            let isNode (ci : ConstructorInfo) = 
-                ci.DeclaringType.GetGenericTypeDefinition() = typedefofNode.GetGenericTypeDefinition()
+            let isNode (ci : ConstructorInfo) = ci.DeclaringType = typeofNode
 
             match expr with
             | SpecificCall operatorExpr (_, _, [ left; right ]) ->
@@ -396,15 +380,15 @@ module private MatchClause =
 
         let rec inner (expr : Expr) =
             match expr with
-            | GetConstructors makeRel typeofRel statement
-            | GetConstructors makeNode typedefofNode statement -> statement
-            | BuildJoin <@ ( -- ) @> "-" inner statement
-            | BuildJoin <@ ( --> ) @> "->" inner statement
-            | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
             | Coerce (expr, _)
             | Let (_, _, expr)
             | TupleGet (expr, _)
             | Lambda (_, expr) -> inner expr
+            | GetConstructors makeRel typeofRel statement
+            | GetConstructors makeNode typeofNode statement -> statement
+            | BuildJoin <@ ( -- ) @> "-" inner statement
+            | BuildJoin <@ ( --> ) @> "->" inner statement
+            | BuildJoin <@ ( <-- ) @> "<-" inner statement -> statement
             | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the MATCH statement" v.Name)
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
 
@@ -435,6 +419,8 @@ module private WhereAndSetStatement =
 
         let rec inner (expr : Expr) =
             match expr with
+            | Let (_, _, expr)
+            | Lambda (_, expr) -> inner expr
             | Operator <@@ (=) @@> " = " inner finalState
             | Operator <@@ (<) @@> " < " inner finalState
             | Operator <@@ (<=) @@> " <= " inner finalState
@@ -469,8 +455,6 @@ module private WhereAndSetStatement =
                 then stmBuilder.AddSerializedType expr
                 else stmBuilder.AddPrimativeType expr
             | Var v -> stmBuilder.AddStatement v.Name
-            | Let (_, _, expr)
-            | Lambda (_, expr) -> inner expr
             | _ ->
                 sprintf "Un matched in WHERE/SET statement: %A" expr
                 |> invalidOp
@@ -633,16 +617,16 @@ module CypherBuilder =
         member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
 
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = NA

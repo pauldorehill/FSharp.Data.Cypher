@@ -37,7 +37,7 @@ type RelLabel(label : string) =
 
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
-type Rel<'R>() =
+type Rel() =
     interface IFSEntity
     /// Match a Relationship and bind it to the variable name
     new(relationship : IFSRelationship) = Rel()
@@ -68,10 +68,15 @@ type Rel<'R>() =
     /// The (/) operator can be used to specify multiple relationships
     new(relationship : IFSRelationship, label : RelLabel, relationshipWithProperties : IFSRelationship) = Rel()
 
+type Rel<'R>() =
+    static member internal IsTypeDefOf (o : obj) =
+        let typ = o.GetType()
+        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Rel<_>>
+
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
 [<Sealed; NoComparison; NoEquality>]
-type Node<'N>() =
+type Node() =
     interface IFSEntity
     /// Match a Node with the label, do not bind to any variable name
     new(label : NodeLabel) = Node()
@@ -100,17 +105,21 @@ type Node<'N>() =
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
     new(node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
-    static member ( -- ) (n1 : Node<'N>, n2 : Node<'N2>) = n2
-    static member ( -- ) (n : Node<'N>, r : Rel<'R>) = r
-    static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
-    static member ( --> ) (node1 : Node<'N>, node2 : Node<'N2>) = node2
-    static member ( --> ) (n : Node<'N>, r : Rel<'R>) = r
-    static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
-    static member ( <-- ) (n1 : Node<'N>, n2 : Node<'N2>) = n1
-    static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = n
-    static member ( <-- ) (r : Rel<'R>, n : Node<'N>) = r
+    static member ( -- ) (n1 : Node, n2 : Node) = n2
+    static member ( -- ) (n : Node, r : Rel) = r
+    static member ( -- ) (r : Rel, n : Node) = n
+    static member ( --> ) (node1 : Node, node2 : Node) = node2
+    static member ( --> ) (n : Node, r : Rel) = r
+    static member ( --> ) (r : Rel, n : Node) = n
+    static member ( <-- ) (n1 : Node, n2 : Node) = n1
+    static member ( <-- ) (n : Node, r : Rel) = n
+    static member ( <-- ) (r : Rel, n : Node) = r
 
-open System
+
+type Node<'N>() = 
+    static member internal IsTypeDefOf (o : obj) =
+        let typ = o.GetType()
+        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Node<_>>
 
 [<AutoOpen>]
 module Ascii =
