@@ -259,7 +259,7 @@ module ``All allowed Types on a Record`` =
         |> Generic.Dictionary
     
     type Graph =
-        static member AllAllowed : Query<AllAllowed> = NA
+        static member AllAllowed = Node<AllAllowed>()
 
     [<Fact>]
     let ``Can do all when return Some`` ()=

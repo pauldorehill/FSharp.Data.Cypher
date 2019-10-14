@@ -46,14 +46,14 @@ type Wrote() =
     member _.Label = RelLabel "WROTE"
     
 type Graph =
-    static member Movie : Query<Movie> = NA
-    static member Person : Query<Person> = NA
-    static member ActedIn : Query<ActedIn> = NA
-    static member Directed : Query<Directed> = NA
-    static member Follows : Query<Follows> = NA
-    static member Produced : Query<Produced> = NA
-    static member Reviewed : Query<Reviewed> = NA
-    static member Wrote : Query<Wrote> = NA
+    static member Movie = Node<Movie>()
+    static member Person = Node<Person>()
+    static member ActedIn = Rel<ActedIn>()
+    static member Directed = Rel<Directed>()
+    static member Follows = Rel<Follows>()
+    static member Produced = Rel<Produced>()
+    static member Reviewed = Rel<Reviewed>()
+    static member Wrote = Rel<Wrote>()
      // Need to have a Neo4j instance running with Auth disabled
     static member Driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None)
 

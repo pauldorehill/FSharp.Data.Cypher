@@ -37,7 +37,7 @@ type RelLabel(label : string) =
 
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
-type Rel() =
+type Rel<'R>() =
     interface IFSEntity
     /// Match a Relationship and bind it to the variable name
     new(relationship : IFSRelationship) = Rel()
@@ -71,7 +71,7 @@ type Rel() =
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
 [<Sealed; NoComparison; NoEquality>]
-type Node() =
+type Node<'N>() =
     interface IFSEntity
     /// Match a Node with the label, do not bind to any variable name
     new(label : NodeLabel) = Node()
@@ -100,15 +100,17 @@ type Node() =
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
     new(node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
-    static member ( -- ) (n1 : Node, n2 : Node) = n2
-    static member ( -- ) (n : Node, r : Rel) = r
-    static member ( -- ) (r : Rel, n : Node) = n
-    static member ( --> ) (node1 : Node, node2 : Node) = node2
-    static member ( --> ) (n : Node, r : Rel) = r
-    static member ( --> ) (r : Rel, n : Node) = n
-    static member ( <-- ) (n1 : Node, n2 : Node) = n1
-    static member ( <-- ) (n : Node, r : Rel) = n
-    static member ( <-- ) (r : Rel, n : Node) = r
+    static member ( -- ) (n1 : Node<'N>, n2 : Node<'N2>) = n2
+    static member ( -- ) (n : Node<'N>, r : Rel<'R>) = r
+    static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
+    static member ( --> ) (node1 : Node<'N>, node2 : Node<'N2>) = node2
+    static member ( --> ) (n : Node<'N>, r : Rel<'R>) = r
+    static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
+    static member ( <-- ) (n1 : Node<'N>, n2 : Node<'N2>) = n1
+    static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = n
+    static member ( <-- ) (r : Rel<'R>, n : Node<'N>) = r
+
+open System
 
 [<AutoOpen>]
 module Ascii =
@@ -117,8 +119,8 @@ module Ascii =
     // Quotations cannot contain expressions that make member constraint calls, 
     // or uses of operators that implicitly resolve to a member constraint call
 
-    let inline ( -- ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
+    let inline ( -- ) (graphEntity : #IFSEntity) (graphEntity2 : #IFSEntity) = graphEntity2
     
-    let inline ( --> ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity2
+    let inline ( --> ) (graphEntity : #IFSEntity) (graphEntity2 : #IFSEntity) = graphEntity2
     
-    let inline ( <-- ) (graphEntity : IFSEntity) (graphEntity2 : IFSEntity) = graphEntity
+    let inline ( <-- ) (graphEntity : #IFSEntity) (graphEntity2 : IFSEntity) = graphEntity
