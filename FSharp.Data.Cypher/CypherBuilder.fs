@@ -7,10 +7,14 @@ open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
-open FSharp.Quotations.Evaluator
-open Neo4j.Driver.V1
+//open FSharp.Quotations.Evaluator
+open Neo4j.Driver
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
+
+type QuotationEvaluator =
+    static member EvaluateUntyped (expr : Expr) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr
+    static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
 
 [<NoComparison; NoEquality>]
 type Query<'T,'Result> =

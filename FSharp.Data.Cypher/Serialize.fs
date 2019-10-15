@@ -4,7 +4,7 @@ open System
 open System.Collections
 open System.Reflection
 open FSharp.Reflection
-open Neo4j.Driver.V1
+open Neo4j.Driver
 
 module Deserialization =
     

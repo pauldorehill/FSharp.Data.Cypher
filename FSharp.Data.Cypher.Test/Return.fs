@@ -1,9 +1,8 @@
 ﻿namespace FSharp.Data.Cypher.Test.Return
 
-open Neo4j.Driver.V1
+open Neo4j.Driver
 open System.Collections
 open FSharp.Data.Cypher
-open FSharp.Data.Cypher.Test
 open Xunit
 
 module ``Query Building`` =

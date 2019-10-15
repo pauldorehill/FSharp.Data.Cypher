@@ -1,6 +1,6 @@
 ﻿namespace FSharp.Data.Cypher.Test.MovieGraph
 
-open Neo4j.Driver.V1
+open Neo4j.Driver
 open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
 open Xunit

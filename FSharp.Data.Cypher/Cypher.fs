@@ -2,8 +2,7 @@
 
 open System
 open System.Collections
-open FSharp.Quotations
-open Neo4j.Driver.V1
+open Neo4j.Driver
 
 module ClauseNames =
     
@@ -83,7 +82,7 @@ module QueryResult =
 
     let summary (qr : QueryResult<'T>) = qr.Summary
 
-type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : ISession, transaction : ITransaction) =
+type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : IAsyncSession, transaction : IAsyncTransaction) =
     member _.Results = results
     member _.Summary = summary
     member _.Session = session
@@ -91,14 +90,14 @@ type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : 
     member this.AsyncCommit() = 
         async {
             do! this.Transaction.CommitAsync() |> Async.AwaitTask
-            this.Session.Dispose()
+            do! this.Session.CloseAsync() |> Async.AwaitTask
             return QueryResult(this.Results, this.Summary)
         }
     member this.Commit() = this.AsyncCommit() |> Async.RunSynchronously
     member this.AsyncRollback() =
         async {
             do! this.Transaction.RollbackAsync() |> Async.AwaitTask
-            this.Session.Dispose()
+            do! this.Session.CloseAsync() |> Async.AwaitTask
             return ()
         }
     member this.Rollback() = this.AsyncRollback() |> Async.RunSynchronously
@@ -173,31 +172,40 @@ module Cypher =
     
     // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
     // Should I use array / parallel here? Lots of reflecion so may be worth while? 
-    let private runTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
-        use session = driver.Session()
-        try
-            let run (t : ITransaction) = t.Run(cypher.Query, makeParameters cypher)
-            let sr = if cypher.IsWrite then session.WriteTransaction run else session.ReadTransaction run
-            let results = 
-                sr 
-                |> Seq.toArray 
-                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+    let private asyncRunTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
+        async {
+            let session = driver.AsyncSession()
+            try
+                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query, makeParameters cypher) 
+
+                let! statementCursor = 
+                    if cypher.IsWrite then session.WriteTransactionAsync run else session.ReadTransactionAsync run
+                    |> Async.AwaitTask
+
+                let! statementResults = statementCursor.ToListAsync() |> Async.AwaitTask
+                let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
+
+                let results =
+                    statementResults
+                    |> Seq.toArray 
+                    |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
             
-            QueryResult(results, sr.Summary)
+                return QueryResult(results, summary)
 
-        finally
-            session.CloseAsync()
-            |> Async.AwaitTask
-            |> Async.RunSynchronously 
-            |> ignore 
+            finally
+                session.CloseAsync()
+                |> Async.AwaitTask
+                |> Async.RunSynchronously 
+                |> ignore 
+        }
 
-    let runMap (driver : IDriver) map cypher = runTransaction driver map cypher
+    let asyncRunMap driver map cypher = asyncRunTransaction driver map cypher
+
+    let asyncRun driver cypher = asyncRunMap driver id cypher
+
+    let runMap (driver : IDriver) map cypher = asyncRunMap driver map cypher |> Async.RunSynchronously
 
     let run (driver : IDriver) cypher = runMap driver id cypher
-
-    let asyncRun driver cypher = async.Return (run driver cypher)
-
-    let asyncRunMap driver map cypher = async.Return (runMap driver map cypher)
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
 
@@ -208,18 +216,31 @@ module Cypher =
     /// Returns a TransactionResult - where the transation needs to be commited to the database or rolled back manually
     module Explicit =
     
-        let private runTransaction (session : ISession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
-            let transaction = session.BeginTransaction()
-            let sr = transaction.Run(cypher.Query, makeParameters cypher)
-            let results = 
-                sr 
-                |> Seq.toArray 
-                |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+        let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
+            async {
             
-            TransactionResult(results, sr.Summary, session, transaction)
+                let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
+                let! statementCursor = transaction.RunAsync(cypher.Query, makeParameters cypher) |> Async.AwaitTask
+                let! statementResults = statementCursor.ToListAsync() |> Async.AwaitTask
+                let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
+                let results = 
+                    statementResults
+                    |> Seq.toArray 
+                    |> Array.Parallel.map (fun record -> cypher.Continuation record.Values |> map) 
+            
+                return TransactionResult(results, summary, session, transaction)
+            
+            }
         
-        let runMap (driver : IDriver) map (cypher : Cypher<'T>) =
-            use session = if cypher.IsWrite then driver.Session AccessMode.Write else driver.Session AccessMode.Read
+        let asyncRunMap (driver : IDriver) map (cypher : Cypher<'T>) =
+            let session = 
+                if cypher.IsWrite 
+                then 
+                    driver.AsyncSession(fun sc -> 
+                        sc.DefaultAccessMode <- AccessMode.Write)
+                else 
+                    driver.AsyncSession(fun sc -> 
+                        sc.DefaultAccessMode <- AccessMode.Read)
             try runTransaction session map cypher
             with e ->
                 session.CloseAsync()
@@ -228,8 +249,8 @@ module Cypher =
                 |> ignore  
                 raise e
 
+        let asyncRun driver cypher = asyncRunMap driver id cypher
+        
+        let runMap driver map cypher = async.Return (runMap driver map cypher)
+        
         let run (driver : IDriver) cypher = runMap driver id cypher
-
-        let asyncRun driver cypher = async.Return (run driver cypher)
-
-        let asyncRunMap driver map cypher = async.Return (runMap driver map cypher)
