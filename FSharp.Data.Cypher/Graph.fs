@@ -102,14 +102,12 @@ type Node() =
     new(node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
 
     static member ( ---- ) (n1 : Node, n2 : Node) = n2
+    static member ( ----> ) (node1 : Node, node2 : Node) = node2
+    static member ( <---- ) (n1 : Node, n2 : Node) = n1
     static member ( -- ) (n : Node, r : Rel) = r
     static member ( -- ) (r : Rel, n : Node) = n
-    static member ( ----> ) (node1 : Node, node2 : Node) = node2
     static member ( --> ) (r : Rel, n : Node) = n
-    static member ( <---- ) (n1 : Node, n2 : Node) = n1
     static member ( <-- ) (n : Node, r : Rel) = r
-    //static member ( --> ) (n : Node, r : Rel) = r
-    //static member ( <-- ) (r : Rel, n : Node) = n
 
 type Node<'N>() = 
     static member internal IsTypeDefOf (o : obj) =
