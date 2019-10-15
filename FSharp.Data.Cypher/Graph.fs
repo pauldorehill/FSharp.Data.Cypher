@@ -1,7 +1,5 @@
 ﻿namespace FSharp.Data.Cypher
 
-//type IFSEntity = interface end
-
 /// Marker interface for a type that is a Node
 type IFSNode = interface end
 

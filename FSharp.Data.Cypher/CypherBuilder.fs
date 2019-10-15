@@ -82,7 +82,6 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
     member this.AddSerializedType expr =
         QuotationEvaluator.EvaluateUntyped expr
-        //:?> IFSEntity
         |> Serialization.serialize
         |> box
         |> Some
@@ -197,10 +196,7 @@ module private MatchClause =
                     | Choice3Of3 _ -> ()
 
                 stmBuilder.AddStatement "{"
-
-                Deserialization.getProperties typ
-                |> Array.iteri build
-
+                Deserialization.getProperties typ |> Array.iteri build
                 stmBuilder.AddStatement "}"
 
             let rec inner (expr : Expr) =
@@ -388,8 +384,6 @@ module private MatchClause =
                 Some (fResult ctTypes paramsExpr)
             | _ -> None
 
-
-
         let (|BuildJoin|_|) (operator : Operators) fResult expr =
             match expr with
             | Call (_, mi, [ left; right ]) when mi.Name = operator.Name ->
@@ -417,8 +411,7 @@ module private MatchClause =
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
 
         inner expr
-
-        stepState.Add(stmBuilder.Build)
+        stepState.Add stmBuilder.Build
 
 module private WhereAndSetStatement =
 
@@ -487,8 +480,7 @@ module private WhereAndSetStatement =
                 |> invalidOp
 
         inner expr
-        stmBuilder.Build
-        |> stepState.Add
+        stepState.Add stmBuilder.Build
 
 module private ReturnClause =
 
@@ -570,10 +562,8 @@ module private ReturnClause =
 
         // Need to run so build the statement correctly
         let continuation = inner expr
-
         let result di = continuation di |> Expr.Cast<'T> |> QuotationEvaluator.Evaluate
-
-        stepState.Add(stmBuilder.Build), result
+        stepState.Add stmBuilder.Build, result
 
 module private BasicClause =
 
@@ -612,7 +602,7 @@ module private BasicClause =
             | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
         inner expr
-        stepState.Add(stmBuilder.Build)
+        stepState.Add stmBuilder.Build
 
 [<AutoOpen>]
 module CypherBuilder =
