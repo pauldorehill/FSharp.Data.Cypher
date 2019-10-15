@@ -166,7 +166,7 @@ module ``All allowed Types on a Record`` =
           boolList : bool List 
           boolArray : bool array 
           boolSet : bool Set }
-        interface IFSNode
+        interface IFSNode<AllAllowed>
 
     let makeToReturnType xs =
         xs

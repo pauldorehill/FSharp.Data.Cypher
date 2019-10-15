@@ -1,10 +1,10 @@
 ﻿namespace FSharp.Data.Cypher
 
 /// Marker interface for a type that is a Node
-type IFSNode = interface end
+type IFSNode<'N> = interface end
 
 /// Marker interface for a type that is a Relationship
-type IFSRelationship = interface end
+type IFSRelationship<'R> = interface end
 
 type private Label =
     static member Make (label : string) =
@@ -35,37 +35,37 @@ type RelLabel(label : string) =
 
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
-type Rel() =
+type Rel<'R>() =
     /// Match a Relationship and bind it to the variable name
-    new(relationship : IFSRelationship) = Rel()
+    new(relationship : IFSRelationship<'R>) = Rel<'R>()
 
     /// Match a Relationship with the label
-    new(label : RelLabel) = Rel()
+    new(label : RelLabel) = Rel<'R>()
 
     /// Match a path length 
-    new(pathHops : uint32) = Rel()
+    new(pathHops : uint32) = Rel<'R>()
     
     /// Match a variable path length. It will use the minimum & max value in the list. 
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
-    new(pathHopsRange : uint32 list) = Rel()
+    new(pathHopsRange : uint32 list) = Rel<'R>()
 
     /// Match a Relationship with the label and bind it to the variable name. 
     /// The (/) operator can be used to specify multiple relationships
-    new(relationship : IFSRelationship, label : RelLabel) = Rel()
+    new(relationship : IFSRelationship<'R>, label : RelLabel) = Rel<'R>()
     
     /// Match a Relationship with the label and a path length 
-    new(label : RelLabel, pathHops : uint32) = Rel()
+    new(label : RelLabel, pathHops : uint32) = Rel<'R>()
 
     /// Match a Relationship with the label and a variable path length.
     /// It will use the minimum & max value in the list. 
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
-    new(label : RelLabel, pathHopsRange : uint32 list) = Rel()
+    new(label : RelLabel, pathHopsRange : uint32 list) = Rel<'R>()
 
     /// Match a Relationship with the label and properties and bind it to the variable name. 
     /// The (/) operator can be used to specify multiple relationships
-    new(relationship : IFSRelationship, label : RelLabel, relationshipWithProperties : IFSRelationship) = Rel()
+    new(relationship : IFSRelationship<'R>, label : RelLabel, relationshipWithProperties : IFSRelationship<'R>) = Rel<'R>()
 
-type Rel<'R>() =
+type Rel =
     static member internal IsTypeDefOf (o : obj) =
         let typ = o.GetType()
         typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Rel<_>>
@@ -73,43 +73,43 @@ type Rel<'R>() =
 // May need to remove the equality down the line to allow return full paths?
 /// Match any Node
 [<Sealed; NoComparison; NoEquality>]
-type Node() =
+type Node<'N>() =
     /// Match a Node with the label, do not bind to any variable name
-    new(label : NodeLabel) = Node()
+    new(label : NodeLabel) = Node<'N>()
 
     /// Match a Node with all the labels, do not bind to any variable name
-    new(label : NodeLabel list) = Node()
+    new(label : NodeLabel list) = Node<'N>()
 
     /// Match a Node and bind it to the variable name
-    new(node : IFSNode) = Node()
+    new(node : IFSNode<'N>) = Node<'N>()
 
     /// Match a Node with the label and bind it to the variable name
-    new(node : IFSNode, label : NodeLabel) = Node()
+    new(node : IFSNode<'N>, label : NodeLabel) = Node<'N>()
 
     /// Match a Node with the labels and bind it to the variable name
-    new(node : IFSNode, labels : NodeLabel list) = Node()
+    new(node : IFSNode<'N>, labels : NodeLabel list) = Node<'N>()
 
     /// Match a Node with properties with the label
     /// (n { Name : "Hello" }) can be written as Node(n, { n with Name = "Hello" })
-    new(node : IFSNode, nodeWithProperties : IFSNode) = Node()
+    new(node : IFSNode<'N>, nodeWithProperties : IFSNode<'N>) = Node<'N>()
 
     /// Match a Node with properties with the label
     /// (n:Node { Name : "Hello" }) can be written as Node(n, NodeLabel "Node", { n with Name = "Hello" })
-    new(node : IFSNode, label : NodeLabel, nodeWithProperties : IFSNode) = Node()
+    new(node : IFSNode<'N>, label : NodeLabel, nodeWithProperties : IFSNode<'N>) = Node<'N>()
 
     /// Match a Node with properties with the labels
     /// (n:Node:Node2 { Name : "Hello" }) can be written as Node(n, [ NodeLabel "Node"; NodeLabel "Node2" ], { n with Name = "Hello" })
-    new(node : IFSNode, label : NodeLabel list, nodeWithProperties : IFSNode) = Node()
+    new(node : IFSNode<'N>, label : NodeLabel list, nodeWithProperties : IFSNode<'N>) = Node<'N>()
 
-    static member ( ---- ) (n1 : Node, n2 : Node) = n2
-    static member ( ----> ) (node1 : Node, node2 : Node) = node2
-    static member ( <---- ) (n1 : Node, n2 : Node) = n1
-    static member ( -- ) (n : Node, r : Rel) = r
-    static member ( -- ) (r : Rel, n : Node) = n
-    static member ( --> ) (r : Rel, n : Node) = n
-    static member ( <-- ) (n : Node, r : Rel) = r
+    static member ( ---- ) (n1 : Node<'N>, n2 : Node<'N>) = n2
+    static member ( ----> ) (node1 : Node<'N>, node2 : Node<'N>) = node2
+    static member ( <---- ) (n1 : Node<'N>, n2 : Node<'N>) = n1
+    static member ( -- ) (n : Node<'N>, r : Rel<'R>) = r
+    static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
+    static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
+    static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = r
 
-type Node<'N>() = 
+type Node =
     static member internal IsTypeDefOf (o : obj) =
         let typ = o.GetType()
         typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Node<_>>

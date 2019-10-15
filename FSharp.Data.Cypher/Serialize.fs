@@ -236,7 +236,7 @@ module Serialization =
     //        member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
     //        member _.Properties = invalidOp "Fake Entity." }
     
-    let makeINode (fsNode : #IFSNode) = 
+    let makeINode (fsNode : #IFSNode<_>) = 
         { new INode with 
             member _.Labels = invalidOp "Fake Node - no labels"
         interface IEntity with
@@ -246,7 +246,7 @@ module Serialization =
         interface IEquatable<INode> with
             member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
             
-    let makeIRelationship (fsRel : #IFSRelationship) = 
+    let makeIRelationship (fsRel : #IFSRelationship<_>) = 
         { new IRelationship with 
             member _.StartNodeId = invalidOp "Fake relationsip - no start node"
             member _.EndNodeId = invalidOp "Fake relationsip - no end node"

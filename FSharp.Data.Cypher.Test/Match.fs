@@ -10,7 +10,7 @@ open Xunit
 
 module Node =
 
-    let node = { new IFSNode }
+    let node = { new IFSNode<'N> }
 
     let label = "NodeLabel"
 
@@ -22,12 +22,12 @@ module Node =
         { StringValue : string
           IntValue : int
           FloatValue : float }
-        interface IFSNode
+        interface IFSNode<NodeType>
         member _.Label = NodeLabel label
         static member StaticLabel = NodeLabel label
 
     type Graph =
-        static member Node = Node<IFSNode>() 
+        static member Node = Node<IFSNode<_>>() 
         static member NodeOfType = Node<NodeType>()
 
     module ``Empty Constructor`` =
@@ -177,7 +177,7 @@ module Node =
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
-        module ``IFSNode`` =
+        module ``IFSNode<'N>`` =
 
             let rtnSt = "MATCH (node) RETURN null"
             let rtnStRaw = """MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
@@ -196,7 +196,7 @@ module Node =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (node : IFSNode) =
+                let f (node : IFSNode<'N>) =
                     cypher {
                         MATCH (Node node)
                         RETURN ()
@@ -248,7 +248,7 @@ module Node =
 
     module ``Two Parameter Constructor`` =
 
-        module ``(IFSNode, NodeLabel)`` =
+        module ``(IFSNode<'N>, NodeLabel)`` =
         
             let rtnSt = "MATCH (node:NodeLabel) RETURN null"
 
@@ -264,7 +264,7 @@ module Node =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (node : IFSNode) (nodeLabel : NodeLabel) =
+                let f (node : IFSNode<'N>) (nodeLabel : NodeLabel) =
                     cypher {
                         MATCH (Node(node, nodeLabel))
                         RETURN ()
@@ -304,7 +304,7 @@ module Node =
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
-        module ``(IFSNode, NodeLabel List)`` =
+        module ``(IFSNode<'N>, NodeLabel List)`` =
         
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
 
@@ -350,7 +350,7 @@ module Node =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (node : IFSNode) (nodeLabels : NodeLabel list) =
+                let f (node : IFSNode<'N>) (nodeLabels : NodeLabel list) =
                     cypher {
                         MATCH (Node(node, nodeLabels))
                         RETURN ()
@@ -370,7 +370,7 @@ module Node =
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
-        module ``(IFSNode, IFSNode)`` =
+        module ``(IFSNode<'N>, IFSNode<'N>)`` =
             
             let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
@@ -386,7 +386,7 @@ module Node =
             
     module ``Three Parameter Constructor`` =
             
-        module ``(IFSNode, NodeLabel, IFSNode)`` =
+        module ``(IFSNode<'N>, NodeLabel, IFSNode<'N>)`` =
             
             let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
@@ -400,7 +400,7 @@ module Node =
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
         
-        module ``(IFSNode, NodeLabel List, IFSNode)`` =
+        module ``(IFSNode<'N>, NodeLabel List, IFSNode<'N>)`` =
             
             let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
 
@@ -416,7 +416,7 @@ module Node =
 
 module Relationship =
     
-    let rel = { new IFSRelationship }
+    let rel = { new IFSRelationship<'R> }
 
     let label = "REL_LABEL"
 
@@ -424,14 +424,14 @@ module Relationship =
 
     type RelType =
         { Value : string }
-        interface IFSRelationship
+        interface IFSRelationship<RelType>
         member _.Label = RelLabel label
         static member StaticLabel = RelLabel label
         member _.IntLabel = 3u
         static member IntLabelList = [ 0u .. 3u ]
 
     type Graph =
-        static member Rel = Rel<IFSRelationship>()
+        static member Rel = Rel<IFSRelationship<_>>()
         static member RelOfType = Rel<RelType>()
 
     module ``Empty Constructor`` =
@@ -448,7 +448,7 @@ module Relationship =
 
     module ``Single Parameter Constructor`` =
 
-        module ``IFSRelationship`` =
+        module ``IFSRelationship<'R>`` =
 
             let rtnSt = "MATCH ()-[rel]-() RETURN null"
             // Quotations can't contain object expressions
@@ -465,7 +465,7 @@ module Relationship =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (rel : IFSRelationship) =
+                let f (rel : IFSRelationship<'R>) =
                     cypher {
                         MATCH (Node() -- Rel rel -- Node())
                         RETURN ()
@@ -618,7 +618,7 @@ module Relationship =
 
     module ``Two Parameter Constructor`` =
 
-        module ``(IFSRelationship, RelLabel)`` =
+        module ``(IFSRelationship<'R>, RelLabel)`` =
         
             let rtnSt = "MATCH ()-[rel:REL_LABEL]-() RETURN null"
 
@@ -634,7 +634,7 @@ module Relationship =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (rel : IFSRelationship) (relLabel : RelLabel) =
+                let f (rel : IFSRelationship<'R>) (relLabel : RelLabel) =
                     cypher {
                         MATCH (Node() -- Rel(rel, relLabel) -- Node())
                         RETURN ()

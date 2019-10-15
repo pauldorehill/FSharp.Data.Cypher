@@ -18,8 +18,7 @@ type QuotationEvaluator =
 
 [<NoComparison; NoEquality>]
 type Query<'T,'Result> =
-    private 
-    | NA
+    private | NA
 
 type private StepBuilder private (stepNo : int, steps : CypherStep list) =
     member _.StepNo = stepNo
@@ -124,10 +123,10 @@ module private MatchClause =
         let stmBuilder = StatementBuilder(clause, stepState)
 
         // Use these since match statements aren't always happy with typeof<_>
-        let typeofNode = typeof<Node>
-        let typeofRel = typeof<Rel>
-        let typeofIFSNode = typeof<IFSNode>
-        let typeofIFSRelationship = typeof<IFSRelationship>
+        let typedefofNode = typedefof<Node<_>>
+        let typedefofRel = typedefof<Rel<_>>
+        let typedefofIFSNode = typedefof<IFSNode<_>>
+        let typedefofIFSRelationship = typedefof<IFSRelationship<_>>
         let typeofNodeLabel = typeof<NodeLabel>
         let typeofNodeLabelList = typeof<NodeLabel list>
         let typeofRelLabel = typeof<RelLabel>
@@ -140,8 +139,8 @@ module private MatchClause =
             | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
             | Value (obj, _) -> obj
             | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-            | SpecificCall <@ List.map @> (_, _, _)
-            | SpecificCall <@ Array.map @> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
+            | SpecificCall <@@ List.map @@> (_, _, _)
+            | SpecificCall <@@ Array.map @@> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
             | PropertyGet (Some (Var var), pi, []) ->
                 let expr = varDic.[var.Name]
                 let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
@@ -204,6 +203,7 @@ module private MatchClause =
                 | Coerce (expr, _) -> inner expr
                 | Let (_, _, expr) -> inner expr
                 | PropertyGet (None, ifs, []) -> stmBuilder.AddStatement ifs.Name
+                | Call(None, mi, []) -> stmBuilder.AddStatement mi.Name
                 | Var ifs -> stmBuilder.AddStatement ifs.Name
                 | ValueWithName (_, _, name) -> stmBuilder.AddStatement name
                 | NewRecord (typ, exprs) -> makeRecordOrClass typ exprs
@@ -220,7 +220,7 @@ module private MatchClause =
 
             let (|GetRange|_|) (expr : Expr) =
                 match expr with
-                | SpecificCall <@ (..) @> (None, _, [ expr1; expr2 ]) ->
+                | SpecificCall <@@ (..) @@> (None, _, [ expr1; expr2 ]) ->
                     let startValue = extractObject expr1 :?> uint32
                     let endValue = extractObject expr2 :?> uint32
                     Some (makeStatement startValue endValue)
@@ -299,7 +299,7 @@ module private MatchClause =
         let makeRelLabel (expr : Expr) =
             let rec inner (expr : Expr) =
                 match expr with
-                | SpecificCall <@ (/) @> (_, _, xs) -> List.sumBy inner xs
+                | SpecificCall <@@ (/) @@> (_, _, xs) -> List.sumBy inner xs
                 | _ -> extractObject expr :?> RelLabel
 
             inner expr
@@ -310,11 +310,11 @@ module private MatchClause =
             stmBuilder.AddStatement "["
             match ctrTypes, ctrExpr with
             | NoParams -> ()
-            | SingleParam [| typeofIFSRelationship |] param -> makeIFS param
+            | SingleParam [| typedefofIFSRelationship |] param -> makeIFS param
             | SingleParam [| typeofRelLabel |] param  -> makeRelLabel param
             | SingleParam [| typeofUInt32 |] param
             | SingleParam [| typeofUInt32List |] param -> makePathHops param
-            | TwoParams [| typeofIFSRelationship; typeofRelLabel |] (param1, param2) ->
+            | TwoParams [| typedefofIFSRelationship; typeofRelLabel |] (param1, param2) ->
                 makeIFS param1
                 makeRelLabel param2
             | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) ->
@@ -323,7 +323,7 @@ module private MatchClause =
             | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) ->
                 makeRelLabel param1
                 makePathHops param2
-            | ThreeParams [| typeofIFSRelationship; typeofRelLabel; typeofIFSRelationship |] (param1, param2, param3) ->
+            | ThreeParams [| typedefofIFSRelationship; typeofRelLabel; typedefofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS param1
                 makeRelLabel param2
                 stmBuilder.AddStatement " "
@@ -349,24 +349,24 @@ module private MatchClause =
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typeofNodeLabel |] param -> makeNodeLabel param
-            | SingleParam [| typeofNodeLabelList |] param ->  makeNodeLabelList param
-            | SingleParam [| typeofIFSNode |] param -> makeIFS param
-            | TwoParams [| typeofIFSNode; typeofNodeLabel |] (param1, param2) ->
+            | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList param
+            | SingleParam [| typedefofIFSNode |] param -> makeIFS param
+            | TwoParams [| typedefofIFSNode; typeofNodeLabel |] (param1, param2) ->
                 makeIFS param1
                 makeNodeLabel param2
-            | TwoParams [| typeofIFSNode; typeofNodeLabelList |] (param1, param2) ->
+            | TwoParams [| typedefofIFSNode; typeofNodeLabelList |] (param1, param2) ->
                 makeIFS param1
                 makeNodeLabelList param2
-            | TwoParams [| typeofIFSNode; typeofIFSNode |] (param1, param2) ->
+            | TwoParams [| typedefofIFSNode; typedefofIFSNode |] (param1, param2) ->
                 makeIFS param1
                 stmBuilder.AddStatement " "
                 makeIFS param2
-            | ThreeParams [| typeofIFSNode; typeofNodeLabel; typeofIFSNode |] (param1, param2, param3) ->
+            | ThreeParams [| typedefofIFSNode; typeofNodeLabel; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabel param2
                 stmBuilder.AddStatement " "
                 makeIFS param3
-            | ThreeParams [| typeofIFSNode; typeofNodeLabelList; typeofIFSNode |] (param1, param2, param3) ->
+            | ThreeParams [| typedefofIFSNode; typeofNodeLabelList; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabelList param2
                 stmBuilder.AddStatement " "
@@ -376,11 +376,21 @@ module private MatchClause =
             stmBuilder.AddStatement ")"
 
         let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
+            let isTyp (ci : ConstructorInfo) =
+                if ci.DeclaringType.IsGenericType 
+                then ci.DeclaringType.GetGenericTypeDefinition() = typ
+                else ci.DeclaringType = typ
+
+            let getParamType (pi : ParameterInfo) =
+                if pi.ParameterType.IsGenericType && (pi.ParameterType.GetGenericTypeDefinition() = typedefofIFSNode || pi.ParameterType.GetGenericTypeDefinition() = typedefofIFSRelationship)
+                then pi.ParameterType.GetGenericTypeDefinition()
+                else pi.ParameterType
+
             match expr with
-            | NewObject (ci, paramsExpr) when ci.DeclaringType = typ -> 
+            | NewObject (ci, paramsExpr) when isTyp ci -> 
                 let ctTypes =   
-                    ci.GetParameters() 
-                    |> Array.map (fun x -> x.ParameterType)
+                    ci.GetParameters()
+                    |> Array.map getParamType
                 Some (fResult ctTypes paramsExpr)
             | _ -> None
 
@@ -399,8 +409,8 @@ module private MatchClause =
             | Let (_, _, expr)
             | TupleGet (expr, _)
             | Lambda (_, expr) -> inner expr
-            | GetConstructors makeRel typeofRel rtn
-            | GetConstructors makeNode typeofNode rtn
+            | GetConstructors makeNode typedefofNode rtn
+            | GetConstructors makeRel typedefofRel rtn
             | BuildJoin OpMMMM inner rtn
             | BuildJoin OpLMMMM inner rtn
             | BuildJoin OpMMMMG inner rtn
@@ -634,16 +644,16 @@ module CypherBuilder =
         member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
 
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
+        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
+        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
+        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node) : Query<'T,'Result> = NA
+        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
 
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = NA
@@ -688,10 +698,7 @@ module CypherBuilder =
                     | Call (_, mi, [ varValue; yieldEnd ]) when mi.Name = "For" ->
                         varExp <- Some varValue
                         inner yieldEnd
-                    | SpecificCall <@ this.Yield @> _ -> ()
-                    //| SpecificCall <@ this.For @> (_, _, [ varValue; yieldEnd ]) ->
-                    //    varExp <- Some varValue
-                    //    inner yieldEnd
+                    | SpecificCall <@@ this.Yield @@> _ -> ()
                     | Let (v, e1, e2) ->
                         if not(varDic.ContainsKey v.Name) then
                             varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
@@ -700,7 +707,7 @@ module CypherBuilder =
                     | ShapeCombination (_, exprs) -> List.iter inner exprs
                     | ShapeLambda (_, expr) -> inner expr
                     | ShapeVar _ -> ()
-                inner expr
+                inner expr.Raw
                 varDic
 
             let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
@@ -744,31 +751,31 @@ module CypherBuilder =
             let buildQry (expr : Expr) =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
-                    | SpecificCall <@ this.Yield @> _ -> state
+                    | SpecificCall <@@ this.Yield @@> _ -> state
                     //| SpecificCall <@ this.For @> (_, _, _) -> state
                     | Call (_, mi, [ varValue; yieldEnd ]) when mi.Name = "For" -> state
                     | Let (_, _, expr)
                     | Lambda (_, expr) -> inner state expr
-                    | MatchCreateMerge <@ this.MATCH @> MATCH state inner stepList
-                    | MatchCreateMerge <@ this.OPTIONAL_MATCH @> OPTIONAL_MATCH state inner stepList
-                    | MatchCreateMerge <@ this.CREATE @> CREATE state inner stepList
-                    | MatchCreateMerge <@ this.MERGE @> MERGE state inner stepList
-                    | WhereSet <@ this.WHERE @> WHERE state inner stepList
-                    | WhereSet <@ this.SET @> SET state inner stepList
-                    | Return <@ this.RETURN @> RETURN state inner stepList
-                    | Return <@ this.RETURN_DISTINCT @> RETURN_DISTINCT state inner stepList
-                    | Basic <@ this.DELETE @> DELETE state inner stepList
-                    | Basic <@ this.DETACH_DELETE @> DETACH_DELETE state inner stepList
-                    | Basic <@ this.ORDER_BY @> ORDER_BY state inner stepList
-                    | NoStatement <@ this.DESC @> DESC state inner stepList
-                    | Basic <@ this.SKIP @> SKIP state inner stepList
-                    | Basic <@ this.LIMIT @> LIMIT state inner stepList
-                    | Basic <@ this.DELETE @> DELETE state inner stepList -> stepList
+                    | MatchCreateMerge <@@ this.MATCH @@> MATCH state inner stepList
+                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> OPTIONAL_MATCH state inner stepList
+                    | MatchCreateMerge <@@ this.CREATE @@> CREATE state inner stepList
+                    | MatchCreateMerge <@@ this.MERGE @@> MERGE state inner stepList
+                    | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
+                    | WhereSet <@@ this.SET @@> SET state inner stepList
+                    | Return <@@ this.RETURN @@> RETURN state inner stepList
+                    | Return <@@ this.RETURN_DISTINCT @@> RETURN_DISTINCT state inner stepList
+                    | Basic <@@ this.DELETE @@> DELETE state inner stepList
+                    | Basic <@@ this.DETACH_DELETE @@> DETACH_DELETE state inner stepList
+                    | Basic <@@ this.ORDER_BY @@> ORDER_BY state inner stepList
+                    | NoStatement <@@ this.DESC @@> DESC state inner stepList
+                    | Basic <@@ this.SKIP @@> SKIP state inner stepList
+                    | Basic <@@ this.LIMIT @@> LIMIT state inner stepList
+                    | Basic <@@ this.DELETE @@> DELETE state inner stepList -> stepList
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr
 
-            let stepBuilder = buildQry expr
+            let stepBuilder = buildQry expr.Raw
 
             Cypher(stepBuilder.Steps, returnStatement.Value)
 
