@@ -67,14 +67,21 @@ type private CypherStep(clause : Clause, statement : string, rawStatement : stri
     member _.Statement = statement
     member _.RawStatement = rawStatement
     member _.Parameters = parameters
-    static member Build (cypherSteps : CypherStep list) (continuation : ReturnContination<'T> option) =
+
+[<Sealed; NoComparison; NoEquality>]
+type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
+    member _.StepNo = stepNo
+    member private this.Steps = stepList
+    member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
+    static member Init = StepBuilder(1, [])
+    member this.Build (continuation : ReturnContination<'T> option) = 
         let sb = new Text.StringBuilder()
         let makeQuery (paramterized : bool) (multiline : bool) =
             let add (s : string) = sb.Append s |> ignore
-            let total = cypherSteps.Length
+            let total = this.Steps.Length
             let mutable count : int = 1
 
-            for step in cypherSteps do
+            for step in this.Steps do
                 add (string step.Clause)
                 if paramterized 
                 then 
@@ -91,33 +98,15 @@ type private CypherStep(clause : Clause, statement : string, rawStatement : stri
             sb.Clear() |> ignore
             qry
 
-        let parameters = cypherSteps |> List.collect (fun cs -> cs.Parameters) 
+        let parameters = this.Steps |> List.collect (fun cs -> cs.Parameters) 
         let query = makeQuery true false
         let queryMultiline = makeQuery true true
         let rawQuery = makeQuery false false
         let rawQueryMultiline = makeQuery false true
-        let isWrite = cypherSteps |> List.exists (fun x -> x.Clause.IsWrite)
-
+        let isWrite = this.Steps |> List.exists (fun x -> x.Clause.IsWrite)
+        let continuation = if typeof<'T> = typeof<unit> then None else continuation // If returning unit, no point running the continuation
+        
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
-
-[<Sealed; NoComparison; NoEquality>]
-type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
-    member _.StepNo = stepNo
-    member private this.Steps = stepList
-    member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
-    static member Init = StepBuilder(1, [])
-    member this.Build (rtn : ReturnContination<'T> option) = 
-        //let steps = 
-        //    match rtn with // When no return, add a default of RETURN ()
-        //    | None -> 
-        //        let rtnClause = StatementBuilder(RETURN, this)
-        //        rtnClause.AddObj ()
-        //        this.Steps @ [ rtnClause.Build ]
-        //    | Some _ -> this.Steps
-
-        let rtn = if typeof<'T> = typeof<unit> then None else rtn // If returning unit, no point running the continuation
-
-        CypherStep.Build this.Steps rtn
 
 and private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let mutable prms : ParameterList = []
@@ -145,18 +134,18 @@ and private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
             |> sprintf "{%s}"
         | _ -> string o
 
-    static member internal KeySymbol = "$"
+    static member KeySymbol = "$"
 
-    member private this.Clause = clause
+    member _.Clause = clause
 
-    member private this.GenerateKey() =
+    member _.GenerateKey() =
         let key = sprintf "step%iparam%i" stepCount prmCount
         prmCount <- prmCount + 1
         addParamterized StatementBuilder.KeySymbol
         addParamterized key
         key
 
-    member private this.Add (o : obj option) =
+    member this.Add (o : obj option) =
         let key = this.GenerateKey()
         match o with
         | Some o -> addNonParamterized (fixStringParameter o)
