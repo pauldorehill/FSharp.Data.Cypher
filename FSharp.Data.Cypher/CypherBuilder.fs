@@ -12,6 +12,48 @@ open Neo4j.Driver
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
+type private Operators =
+    | OpEqual
+    | OpLess
+    | OpGreater
+    | OpNotEqual
+    | OpLessOrEqual
+    | OpGreaterOrEqual
+    | OpMM
+    | OpLMM
+    | OpMMG
+    | OpMMMM
+    | OpLMMMM
+    | OpMMMMG
+    member this.Name =
+        match this with
+        | OpEqual -> "op_Equality"
+        | OpLess -> "op_LessThan"
+        | OpGreater -> "op_GreaterThan"
+        | OpNotEqual -> "op_Inequality"
+        | OpLessOrEqual -> "op_LessThanOrEqual"
+        | OpGreaterOrEqual -> "op_GreaterThanOrEqual"
+        | OpMM -> "op_MinusMinus"
+        | OpLMM -> "op_LessMinusMinus"
+        | OpMMG -> "op_MinusMinusGreater"
+        | OpMMMM -> "op_MinusMinusMinusMinus"
+        | OpLMMMM -> "op_LessMinusMinusMinusMinus"
+        | OpMMMMG -> "op_MinusMinusMinusMinusGreater"
+    override this.ToString() =
+        match this with
+        | OpMMMM -> "--"
+        | OpLMMMM -> "<--"
+        | OpMMMMG -> "-->"
+        | OpMM -> "-"
+        | OpLMM -> "<-"
+        | OpMMG -> "->"
+        | OpEqual -> "="
+        | OpLess -> "<"
+        | OpLessOrEqual -> "<="
+        | OpGreater -> ">"
+        | OpGreaterOrEqual ->">="
+        | OpNotEqual -> "<>"
+
 type QuotationEvaluator =
     static member EvaluateUntyped (expr : Expr) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr
     static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
@@ -101,30 +143,6 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     member this.Build = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
 
 module private MatchClause =
-
-    type private Operators =
-        | OpMMMM
-        | OpLMMMM
-        | OpMMMMG
-        | OpMM
-        | OpLMM
-        | OpMMG
-        member this.Name =
-            match this with
-            | OpMMMM -> "op_MinusMinusMinusMinus"
-            | OpLMMMM -> "op_LessMinusMinusMinusMinus"
-            | OpMMMMG -> "op_MinusMinusMinusMinusGreater"
-            | OpMM -> "op_MinusMinus"
-            | OpLMM -> "op_LessMinusMinus"
-            | OpMMG -> "op_MinusMinusGreater"
-        override this.ToString() =
-            match this with
-            | OpMMMM -> "--"
-            | OpLMMMM -> "<--"
-            | OpMMMMG -> "-->"
-            | OpMM -> "-"
-            | OpLMM -> "<-"
-            | OpMMG -> "->"
 
     let make (stepState : StepBuilder) (clause : Clause) (varDic : VarDic) expr =
 
@@ -448,28 +466,30 @@ module private WhereAndSetStatement =
 
         let buildState fExpr left symbol right =
             fExpr left
+            stmBuilder.AddStatement " "
             stmBuilder.AddStatement symbol
+            stmBuilder.AddStatement " "
             fExpr right
 
-        let (|Operator|_|) opExpr opSymbol fExpr expr =
+        let (|Operator|_|) (operator : Operators) fExpr expr =
             match expr with
-            | SpecificCall opExpr (_, _, [ left; right ]) ->
-                Some (buildState fExpr left opSymbol right)
+            | Call (_, mi, [ left; right ]) when mi.Name = operator.Name ->
+                Some (buildState fExpr left (string operator) right)
             | _ -> None
 
         let rec inner (expr : Expr) =
             match expr with
             | Let (_, _, expr)
             | Lambda (_, expr) -> inner expr
-            | Operator <@@ (=) @@> " = " inner finalState
-            | Operator <@@ (<) @@> " < " inner finalState
-            | Operator <@@ (<=) @@> " <= " inner finalState
-            | Operator <@@ (>) @@> " > " inner finalState
-            | Operator <@@ (>=) @@> " >= " inner finalState
-            | Operator <@@ (<>) @@> " <> " inner finalState -> finalState
-            | IfThenElse (left, right, Value(_, _)) -> buildState inner left " AND " right
-            | IfThenElse (left, Value(_, _), right) -> buildState inner left " OR " right
-            | NewTuple exprs -> // Here for set statement - maybe throw on WHERE?
+            | Operator OpEqual inner finalState
+            | Operator OpLess inner finalState
+            | Operator OpLessOrEqual inner finalState
+            | Operator OpGreater inner finalState
+            | Operator OpGreaterOrEqual inner finalState
+            | Operator OpNotEqual inner finalState -> finalState
+            | IfThenElse (left, right, Value(_, _)) -> buildState inner left "AND" right
+            | IfThenElse (left, Value(_, _), right) -> buildState inner left "OR" right
+            | NewTuple exprs ->
                 exprs
                 |> List.iteri (fun i expr ->
                     if i <> 0 then stmBuilder.AddStatement ", "
