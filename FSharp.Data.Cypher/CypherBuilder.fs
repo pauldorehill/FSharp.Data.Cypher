@@ -12,6 +12,74 @@ open Neo4j.Driver
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
+module ClauseNames =
+    
+    let [<Literal>] MATCH = "MATCH"
+    let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
+    let [<Literal>] CREATE = "CREATE"
+    let [<Literal>] MERGE = "MERGE"
+    let [<Literal>] WHERE = "WHERE"
+    let [<Literal>] SET = "SET"
+    let [<Literal>] RETURN = "RETURN"
+    let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
+    let [<Literal>] ORDER_BY = "ORDER_BY"
+    let [<Literal>] DESC = "DESC"
+    let [<Literal>] SKIP = "SKIP"
+    let [<Literal>] LIMIT = "LIMIT"
+    let [<Literal>] DELETE = "DELETE"
+    let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
+    // TODO - here for write/read check completeness
+    let [<Literal>] REMOVE = "REMOVE"
+    let [<Literal>] FOREACH = "FOREACH"
+
+type Clause = 
+    | MATCH
+    | OPTIONAL_MATCH
+    | CREATE
+    | MERGE
+    | WHERE
+    | SET
+    | RETURN
+    | RETURN_DISTINCT
+    | ORDER_BY
+    | DESC
+    | SKIP
+    | LIMIT
+    | DELETE
+    | DETACH_DELETE
+    | REMOVE
+    | FOREACH
+    override this.ToString() =
+        match this with
+        | MATCH -> ClauseNames.MATCH
+        | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
+        | CREATE -> ClauseNames.CREATE
+        | MERGE -> ClauseNames.MERGE
+        | WHERE -> ClauseNames.WHERE
+        | SET -> ClauseNames.SET
+        | RETURN -> ClauseNames.RETURN
+        | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
+        | ORDER_BY -> ClauseNames.ORDER_BY
+        | DESC -> ClauseNames.DESC
+        | SKIP -> ClauseNames.SKIP
+        | LIMIT -> ClauseNames.LIMIT
+        | DELETE -> ClauseNames.DELETE
+        | DETACH_DELETE -> ClauseNames.DETACH_DELETE
+        | REMOVE -> ClauseNames.REMOVE
+        | FOREACH -> ClauseNames.FOREACH
+        |> fun s -> s.Replace("_", " ")
+    member this.IsWrite =   
+        match this with
+        | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
+        | _ -> false
+    member this.IsRead = not (this.IsWrite)
+         
+module Clause =
+    
+    let isRead (clause : Clause) = clause.IsRead
+
+    let isWrite (clause : Clause) = clause.IsWrite
+
 type private Operators =
     | OpEqual
     | OpLess
@@ -108,7 +176,7 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
         
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
 
-and private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
+type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let mutable prms : ParameterList = []
     let mutable prmCount : int = 1
     let stepCount = stepBuilder.StepNo
@@ -188,7 +256,7 @@ module private MatchClause =
 
         let stmBuilder = StatementBuilder(clause, stepState)
 
-        // Use these since match statements aren't always happy with typeof<_>
+        // Use these since match statements happy with typeof<_>
         let typedefofNode = typedefof<Node<_>>
         let typedefofRel = typedefof<Rel<_>>
         let typedefofIFSNode = typedefof<IFSNode<_>>

@@ -1,4 +1,4 @@
-﻿namespace FSharp.Data.Cypher.Test.Return
+﻿namespace FSharp.Data.Cypher.Test.RETURN
 
 open Neo4j.Driver
 open System.Collections
@@ -190,34 +190,34 @@ module ``All allowed Types on a Record`` =
     let baseList =
         [ "string", box "EMU"
           "stringOption", box "EMU"
-          "stringSeq", box ([ box "EMU" ] |> Generic.List)
-          "stringList", box ([ box "EMU" ] |> Generic.List)
-          "stringArray", box ([ box "EMU" ] |> Generic.List)
-          "stringSet", box ([ box "EMU" ] |> Generic.List)
+          "stringSeq", box ([ box "EMU" ] |> ResizeArray)
+          "stringList", box ([ box "EMU" ] |> ResizeArray)
+          "stringArray", box ([ box "EMU" ] |> ResizeArray)
+          "stringSet", box ([ box "EMU" ] |> ResizeArray)
           "int64", box 5L
           "int64Option", box 5L
-          "int64Seq", box ([ box 5L ] |> Generic.List)
-          "int64List", box ([ box 5L ] |> Generic.List)
-          "int64Array", box ([ box 5L ] |> Generic.List)
-          "int64Set", box ([ box 5L ] |> Generic.List)
+          "int64Seq", box ([ box 5L ] |> ResizeArray)
+          "int64List", box ([ box 5L ] |> ResizeArray)
+          "int64Array", box ([ box 5L ] |> ResizeArray)
+          "int64Set", box ([ box 5L ] |> ResizeArray)
           "int32", box 5L
           "int32Option", box 5L
-          "int32Seq", box ([ box 5L ] |> Generic.List)
-          "int32List", box ([ box 5L ] |> Generic.List)
-          "int32Array", box ([ box 5L ] |> Generic.List)
-          "int32Set", box ([ box 5L ] |> Generic.List)
+          "int32Seq", box ([ box 5L ] |> ResizeArray)
+          "int32List", box ([ box 5L ] |> ResizeArray)
+          "int32Array", box ([ box 5L ] |> ResizeArray)
+          "int32Set", box ([ box 5L ] |> ResizeArray)
           "float", box 5.5
           "floatOption", box 5.5
-          "floatSeq", box ([ box 5.5 ] |> Generic.List)
-          "floatList", box ([ box 5.5 ] |> Generic.List)
-          "floatArray", box ([ box 5.5 ] |> Generic.List)
-          "floatSet", box ([ box 5.5 ] |> Generic.List)
+          "floatSeq", box ([ box 5.5 ] |> ResizeArray)
+          "floatList", box ([ box 5.5 ] |> ResizeArray)
+          "floatArray", box ([ box 5.5 ] |> ResizeArray)
+          "floatSet", box ([ box 5.5 ] |> ResizeArray)
           "bool", box true
           "boolOption", box true
-          "boolSeq", box ([ box true ] |> Generic.List)
-          "boolList", box ([ box true ] |> Generic.List)
-          "boolArray", box ([ box true ] |> Generic.List)
-          "boolSet", box ([ box true ] |> Generic.List) ]
+          "boolSeq", box ([ box true ] |> ResizeArray)
+          "boolList", box ([ box true ] |> ResizeArray)
+          "boolArray", box ([ box true ] |> ResizeArray)
+          "boolSet", box ([ box true ] |> ResizeArray) ]
 
     let allAllowedSome = makeToReturnType baseList
     
@@ -295,3 +295,18 @@ module ``All allowed Types on a Record`` =
         }
         |> Cypher.spoof spoofDic
         |> Assert.IsType<AllAllowed>
+
+namespace FSharp.Data.Cypher.Test.RETURN_DISTINCT
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` = 
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            RETURN_DISTINCT ()
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("RETURN DISTINCT null", q)

@@ -7,74 +7,6 @@ open Neo4j.Driver
 type ReturnContination<'T> = Generic.IReadOnlyDictionary<string, obj> -> 'T
 type ParameterList = (string * obj option) list
 
-module ClauseNames =
-    
-    let [<Literal>] MATCH = "MATCH"
-    let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
-    let [<Literal>] CREATE = "CREATE"
-    let [<Literal>] MERGE = "MERGE"
-    let [<Literal>] WHERE = "WHERE"
-    let [<Literal>] SET = "SET"
-    let [<Literal>] RETURN = "RETURN"
-    let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
-    let [<Literal>] ORDER_BY = "ORDER_BY"
-    let [<Literal>] DESC = "DESC"
-    let [<Literal>] SKIP = "SKIP"
-    let [<Literal>] LIMIT = "LIMIT"
-    let [<Literal>] DELETE = "DELETE"
-    let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
-    // TODO - here for write/read check completeness
-    let [<Literal>] REMOVE = "REMOVE"
-    let [<Literal>] FOREACH = "FOREACH"
-
-type Clause = 
-    | MATCH
-    | OPTIONAL_MATCH
-    | CREATE
-    | MERGE
-    | WHERE
-    | SET
-    | RETURN
-    | RETURN_DISTINCT
-    | ORDER_BY
-    | DESC
-    | SKIP
-    | LIMIT
-    | DELETE
-    | DETACH_DELETE
-    | REMOVE
-    | FOREACH
-    override this.ToString() =
-        match this with
-        | MATCH -> ClauseNames.MATCH
-        | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
-        | CREATE -> ClauseNames.CREATE
-        | MERGE -> ClauseNames.MERGE
-        | WHERE -> ClauseNames.WHERE
-        | SET -> ClauseNames.SET
-        | RETURN -> ClauseNames.RETURN
-        | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
-        | ORDER_BY -> ClauseNames.ORDER_BY
-        | DESC -> ClauseNames.DESC
-        | SKIP -> ClauseNames.SKIP
-        | LIMIT -> ClauseNames.LIMIT
-        | DELETE -> ClauseNames.DELETE
-        | DETACH_DELETE -> ClauseNames.DETACH_DELETE
-        | REMOVE -> ClauseNames.REMOVE
-        | FOREACH -> ClauseNames.FOREACH
-        |> fun s -> s.Replace("_", " ")
-    member this.IsWrite =   
-        match this with
-        | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
-        | _ -> false
-    member this.IsRead = not (this.IsWrite)
-         
-module Clause =
-    
-    let isRead (clause : Clause) = clause.IsRead
-
-    let isWrite (clause : Clause) = clause.IsWrite
-
 type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
     member _.Results = results
     member _.Summary = summary
@@ -142,7 +74,12 @@ module Cypher =
         |> Generic.Dictionary
     
     // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
-    // Should I use array / parallel here? Lots of reflecion so may be worth while? 
+    // Should I use array / parallel here? Lots of reflecion so may be worth while
+    // TODO: Moved to 4.0 driver
+    // - AsyncSession() - Add in session Config() options? Or expose passing in the session?
+    // - WriteTransactionAsync() - Add in TransactionConfig()
+    // - Back pressure handling on IStatementResultCursor : Not supported currently in dotnet driver
+
     let private asyncRunTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
         async {
             let session = driver.AsyncSession()

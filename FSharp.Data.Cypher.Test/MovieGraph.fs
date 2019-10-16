@@ -59,7 +59,7 @@ type Graph =
 
 module ``Primative Types`` =
     
-    open Return.``Deserialize: Spoofed Results``
+    open RETURN.``Deserialize: Spoofed Results``
 
     let f x =
         Cypher.run Graph.Driver x

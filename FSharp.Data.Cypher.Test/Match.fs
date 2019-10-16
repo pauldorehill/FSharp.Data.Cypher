@@ -1,4 +1,4 @@
-﻿namespace FSharp.Data.Cypher.Test.Match
+﻿namespace FSharp.Data.Cypher.Test.MATCH
 
 open System
 open FSharp.Data.Cypher
@@ -32,14 +32,13 @@ module Node =
 
     module ``Empty Constructor`` =
         
-        let rtnSt = sprintf "MATCH %s RETURN null"
+        let rtnSt = sprintf "MATCH %s"
 
         [<Fact>]
         let ``Single Node`` () =
 
             cypher {
                 MATCH (Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()", q)
@@ -49,7 +48,6 @@ module Node =
 
             cypher {
                 MATCH (Node() ---- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()--()", q)
@@ -59,7 +57,6 @@ module Node =
 
             cypher {
                 MATCH (Node() ----> Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()-->()", q)
@@ -69,7 +66,6 @@ module Node =
 
             cypher {
                 MATCH (Node() <---- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()<--()", q)
@@ -79,7 +75,6 @@ module Node =
 
             cypher {
                 MATCH (Node() <---- Node() ---- Node() ----> Node() <---- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt "()<--()--()-->()<--()", q)
@@ -88,13 +83,12 @@ module Node =
 
         module ``NodeLabel`` =
 
-            let rtnSt = sprintf "MATCH (:%s) RETURN null" label
+            let rtnSt = sprintf "MATCH (:%s)" label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
                 cypher {
                     MATCH (Node(NodeLabel label))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -104,7 +98,6 @@ module Node =
 
                 cypher {
                     MATCH (Node nodeLabel)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -114,7 +107,6 @@ module Node =
                 let f (nodeLabel : NodeLabel) =
                     cypher {
                         MATCH (Node nodeLabel)
-                        RETURN ()
                     }
 
                 f nodeLabel
@@ -126,7 +118,6 @@ module Node =
                 cypher {
                     let nodeLabel = NodeLabel label
                     MATCH (Node nodeLabel)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -134,13 +125,12 @@ module Node =
         module ``NodeLabel list`` =
         
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
-            let rtnSt = sprintf "MATCH (:%s:%s:%s) RETURN null" label label label
+            let rtnSt = sprintf "MATCH (:%s:%s:%s)" label label label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
                 cypher {
                     MATCH (Node([ NodeLabel label; NodeLabel label; NodeLabel label]))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -150,7 +140,6 @@ module Node =
 
                 cypher {
                     MATCH (Node nodeLabels)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -160,7 +149,6 @@ module Node =
                 let f (nodeLabels : NodeLabel list) =
                     cypher {
                         MATCH (Node nodeLabels)
-                        RETURN ()
                     }
 
                 f nodeLabels
@@ -172,16 +160,15 @@ module Node =
                 cypher {
                     let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
                     MATCH (Node nodeLabels)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``IFSNode<'N>`` =
 
-            let rtnSt = "MATCH (node) RETURN null"
-            let rtnStRaw = """MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
-            let rtnStParams = """MATCH ({StringValue: $step2param1, IntValue: $step2param2, FloatValue: $step2param3}) RETURN $step1param1"""
+            let rtnSt = "MATCH (node)"
+            let rtnStRaw = """MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
+            let rtnStParams = """MATCH ({StringValue: $step1param1, IntValue: $step1param2, FloatValue: $step1param3})"""
             
             // Quotations can't contain object expressions
             // so use a graph for binding test
@@ -189,7 +176,6 @@ module Node =
             let ``Variable outside function`` () =
                 cypher {
                     MATCH (Node node)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -199,7 +185,6 @@ module Node =
                 let f (node : IFSNode<'N>) =
                     cypher {
                         MATCH (Node node)
-                        RETURN ()
                     }
 
                 f node
@@ -211,7 +196,6 @@ module Node =
                 cypher {
                     for node in Graph.Node do
                     MATCH (Node node)
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -221,7 +205,6 @@ module Node =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node({ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStRaw, q)
@@ -229,9 +212,7 @@ module Node =
             [<Fact>]
             let ``New Record: Raw Query`` () =
                 cypher {
-                    for node in Graph.NodeOfType do
                     MATCH (Node({ IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStRaw, q)
@@ -239,9 +220,7 @@ module Node =
             [<Fact>]
             let ``New Record: Parameterized Query`` () =
                 cypher {
-                    for node in Graph.NodeOfType do
                     MATCH (Node({ IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.query
                 |> fun q -> Assert.Equal(rtnStParams, q)
@@ -251,23 +230,21 @@ module Node =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node({ node with FloatValue = 2.1 }))
-                    RETURN ()
                 }
                 |> Cypher.query
-                |> fun q -> Assert.Equal("""MATCH ({FloatValue: $step2param1}) RETURN $step1param1""", q)
+                |> fun q -> Assert.Equal("""MATCH ({FloatValue: $step1param1})""", q)
 
     module ``Two Parameter Constructor`` =
 
         module ``(IFSNode<'N>, NodeLabel)`` =
         
-            let rtnSt = "MATCH (node:NodeLabel) RETURN null"
+            let rtnSt = "MATCH (node:NodeLabel)"
 
             [<Fact>]
             let ``Variable outside function`` () =
 
                 cypher {
                     MATCH (Node(node, nodeLabel))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -277,7 +254,6 @@ module Node =
                 let f (node : IFSNode<'N>) (nodeLabel : NodeLabel) =
                     cypher {
                         MATCH (Node(node, nodeLabel))
-                        RETURN ()
                     }
 
                 f node nodeLabel
@@ -289,7 +265,6 @@ module Node =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node(node, node.Label))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -299,7 +274,6 @@ module Node =
                 cypher {
                     let node = { StringValue = "NewStringValue"; IntValue = 3; FloatValue = 2.1 }
                     MATCH (Node(node, node.Label))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -309,7 +283,6 @@ module Node =
                 cypher {
                     let node = { IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }
                     MATCH (Node(node, node.Label))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -318,13 +291,12 @@ module Node =
         
             let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
 
-            let rtnSt = sprintf "MATCH (node:%s:%s:%s) RETURN null" label label label
+            let rtnSt = sprintf "MATCH (node:%s:%s:%s)" label label label
         
             [<Fact>]
             let ``Create in Node Constructor`` () =
                 cypher {
                     MATCH (Node(node, [ NodeLabel label; NodeLabel label; NodeLabel label]))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -333,7 +305,6 @@ module Node =
             let ``Node labels with List.map`` () =
                 cypher {
                     MATCH (Node(node, List.map NodeLabel [ label; label; label ]))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -343,7 +314,6 @@ module Node =
                 cypher {
                     let labels = List.map NodeLabel [ label; label; label ]
                     MATCH (Node(node, labels))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -353,7 +323,6 @@ module Node =
 
                 cypher {
                     MATCH (Node(node, nodeLabels))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -363,7 +332,6 @@ module Node =
                 let f (node : IFSNode<'N>) (nodeLabels : NodeLabel list) =
                     cypher {
                         MATCH (Node(node, nodeLabels))
-                        RETURN ()
                     }
 
                 f node nodeLabels
@@ -375,21 +343,19 @@ module Node =
                 cypher {
                     let nodeLabels = [ NodeLabel label; NodeLabel label; NodeLabel label]
                     MATCH (Node(node, nodeLabels))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(IFSNode<'N>, IFSNode<'N>)`` =
             
-            let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
+            let rtnStSingleProp = """MATCH (node {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
 
             [<Fact>]
             let ``Record update syntax for param matching`` () =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node(node, { node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
@@ -398,28 +364,26 @@ module Node =
             
         module ``(IFSNode<'N>, NodeLabel, IFSNode<'N>)`` =
             
-            let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
+            let rtnStSingleProp = """MATCH (node:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
 
             [<Fact>]
             let ``Can make`` () =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node(node, nodeLabel ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
         
         module ``(IFSNode<'N>, NodeLabel List, IFSNode<'N>)`` =
             
-            let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1}) RETURN null"""
+            let rtnStSingleProp = """MATCH (node:NodeLabel:NodeLabel:NodeLabel {StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
 
             [<Fact>]
             let ``Can make`` () =
                 cypher {
                     for node in Graph.NodeOfType do
                     MATCH (Node(node, nodeLabels ,{ node with IntValue = 3; FloatValue = 2.1; StringValue = "NewStringValue" }))
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnStSingleProp, q)
@@ -451,16 +415,15 @@ module Relationship =
 
             cypher {
                 MATCH (Node() -- Rel() -- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
-            |> fun q -> Assert.Equal("MATCH ()-[]-() RETURN null", q)
+            |> fun q -> Assert.Equal("MATCH ()-[]-()", q)
 
     module ``Single Parameter Constructor`` =
 
         module ``IFSRelationship<'R>`` =
 
-            let rtnSt = "MATCH ()-[rel]-() RETURN null"
+            let rtnSt = "MATCH ()-[rel]-()"
             // Quotations can't contain object expressions
             // so use a graph for binding test
 
@@ -468,7 +431,6 @@ module Relationship =
             let ``Variable outside function`` () =
                 cypher {
                     MATCH (Node() -- Rel rel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -478,7 +440,6 @@ module Relationship =
                 let f (rel : IFSRelationship<'R>) =
                     cypher {
                         MATCH (Node() -- Rel rel -- Node())
-                        RETURN ()
                     }
 
                 f rel
@@ -490,7 +451,6 @@ module Relationship =
                 cypher {
                     for rel in Graph.Rel do
                     MATCH (Node() -- Rel rel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -500,20 +460,18 @@ module Relationship =
                 cypher {
                     for rel in Graph.RelOfType do
                     MATCH (Node() -- Rel({ rel with Value = "NewValue" }) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("""MATCH ()-[{Value: "NewValue"}]-() RETURN null""", q)
+                |> fun q -> Assert.Equal("""MATCH ()-[{Value: "NewValue"}]-()""", q)
 
         module ``RelLabel`` =
             
-            let rtnSt = sprintf "MATCH ()-[:%s]-() RETURN null" label
+            let rtnSt = sprintf "MATCH ()-[:%s]-()" label
 
             [<Fact>]
             let ``Create in Rel Constructor`` () =
                 cypher {
                     MATCH (Node() -- Rel(RelLabel label) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -523,7 +481,6 @@ module Relationship =
 
                 cypher {
                     MATCH (Node() -- Rel relLabel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -533,7 +490,6 @@ module Relationship =
                 let f (relLabel : RelLabel) =
                     cypher {
                         MATCH (Node() -- Rel relLabel -- Node())
-                        RETURN ()
                     }
 
                 f relLabel
@@ -545,7 +501,6 @@ module Relationship =
                 cypher {
                     let relLabel = RelLabel label
                     MATCH (Node() -- Rel relLabel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -555,7 +510,6 @@ module Relationship =
                 cypher {
                     for rel in Graph.RelOfType do
                     MATCH (Node() -- Rel rel.Label -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -564,7 +518,6 @@ module Relationship =
             let ``For .. in with Static member`` () =
                 cypher {
                     MATCH (Node() -- Rel RelType.StaticLabel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -575,69 +528,62 @@ module Relationship =
             let ``Fixed no of path hops`` () =
                 cypher {
                     MATCH (Node() -- Rel(3u) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*3]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*3]-()", q)
             
             [<Fact>]
             let ``Fixed no of path hops on static member`` () =
                 cypher {
                     MATCH (Node() -- Rel RelType.IntLabelList -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*0..3]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*0..3]-()", q)
             
             [<Fact>]
             let ``Fixed no of path hops on for in`` () =
                 cypher {
                     for rel in Graph.RelOfType do
                     MATCH (Node() -- Rel rel.IntLabel -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*3]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*3]-()", q)
             
             [<Fact>]
             let ``Range of path hops`` () =
                 cypher {
                     MATCH (Node() -- Rel([ 1u .. 3u ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*1..3]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*1..3]-()", q)
             
             [<Fact>]
             let ``Range of path hops: Max path hops`` () =
                 cypher {
                     MATCH (Node() -- Rel([ 0u .. UInt32.MaxValue ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*0..]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*0..]-()", q)
             
             [<Fact>]
             let ``List literal`` () =
                 cypher {
                     MATCH (Node() -- Rel([ 1u; 0u; 3u; 5u; 3u; 7u; ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
-                |> fun q -> Assert.Equal("MATCH ()-[*0..7]-() RETURN null", q)
+                |> fun q -> Assert.Equal("MATCH ()-[*0..7]-()", q)
 
     module ``Two Parameter Constructor`` =
 
         module ``(IFSRelationship<'R>, RelLabel)`` =
         
-            let rtnSt = "MATCH ()-[rel:REL_LABEL]-() RETURN null"
+            let rtnSt = "MATCH ()-[rel:REL_LABEL]-()"
 
             [<Fact>]
             let ``Variable outside function`` () =
 
                 cypher {
                     MATCH (Node() -- Rel(rel, relLabel) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -647,7 +593,6 @@ module Relationship =
                 let f (rel : IFSRelationship<'R>) (relLabel : RelLabel) =
                     cypher {
                         MATCH (Node() -- Rel(rel, relLabel) -- Node())
-                        RETURN ()
                     }
 
                 f rel relLabel
@@ -659,14 +604,13 @@ module Relationship =
                 cypher {
                     for rel in Graph.RelOfType do
                     MATCH (Node() -- Rel(rel, rel.Label) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
 
         module ``(RelLabel, uint32)`` =
         
-            let rtnSt = "MATCH ()-[:REL_LABEL*3]-() RETURN null"
+            let rtnSt = "MATCH ()-[:REL_LABEL*3]-()"
             let i = 3u
 
             [<Fact>]
@@ -674,7 +618,6 @@ module Relationship =
 
                 cypher {
                     MATCH (Node() -- Rel(relLabel, 3u) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -685,7 +628,6 @@ module Relationship =
                 cypher {
                     let hops = 3u
                     MATCH (Node() -- Rel(relLabel, hops) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -695,7 +637,6 @@ module Relationship =
                 let f (relLabel : RelLabel) (hops : uint32) =
                     cypher {
                         MATCH (Node() -- Rel(relLabel, hops) -- Node())
-                        RETURN ()
                     }
 
                 f relLabel 3u 
@@ -704,7 +645,7 @@ module Relationship =
         
         module ``(RelLabel, uint32 list)`` =
         
-            let rtnSt = "MATCH ()-[:REL_LABEL*0..3]-() RETURN null"
+            let rtnSt = "MATCH ()-[:REL_LABEL*0..3]-()"
             let i0 = 0u
             let i3 = 3u
 
@@ -713,7 +654,6 @@ module Relationship =
 
                 cypher {
                     MATCH (Node() -- Rel(relLabel, [ i0 .. i3 ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -723,7 +663,6 @@ module Relationship =
 
                 cypher {
                     MATCH (Node() -- Rel(relLabel, [ 0u .. i3 ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -733,7 +672,6 @@ module Relationship =
 
                 cypher {
                     MATCH (Node() -- Rel(relLabel, [ i0 .. 3u ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -745,7 +683,6 @@ module Relationship =
                     let hops = 3u
                     let min = 0u
                     MATCH (Node() -- Rel(relLabel, [ min .. hops ]) -- Node())
-                    RETURN ()
                 }
                 |> Cypher.rawQuery
                 |> fun q -> Assert.Equal(rtnSt, q)
@@ -755,7 +692,6 @@ module Relationship =
                 let f (relLabel : RelLabel) (hops : uint32 list) =
                     cypher {
                          MATCH (Node() -- Rel(relLabel, hops) -- Node())
-                         RETURN ()
                     }
 
                 f relLabel [ 0u .. 3u ] 
@@ -769,22 +705,20 @@ module Relationship =
             cypher {
                 for rel in Graph.RelOfType do
                 MATCH (Node() -- Rel(rel, rel.Label, { rel with Value = "NewValue" }) -- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
-            |> fun q -> Assert.Equal("""MATCH ()-[rel:REL_LABEL {Value: "NewValue"}]-() RETURN null""", q)
+            |> fun q -> Assert.Equal("""MATCH ()-[rel:REL_LABEL {Value: "NewValue"}]-()""", q)
 
     module ``RelLabel Combination Operator`` =
         
         let label = "REL_LABEL"
         let relLabel = RelLabel label / RelLabel label / RelLabel label
-        let rtnSt = sprintf "MATCH ()-[:%s|:%s|:%s]-() RETURN null" label label label
+        let rtnSt = sprintf "MATCH ()-[:%s|:%s|:%s]-()" label label label
         
         [<Fact>]
         let ``Create in Rel Constructor`` () =
             cypher {
                 MATCH (Node() -- Rel(RelLabel label / RelLabel label / RelLabel label) -- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
@@ -794,7 +728,6 @@ module Relationship =
 
             cypher {
                 MATCH (Node() -- Rel relLabel -- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
@@ -804,7 +737,6 @@ module Relationship =
             let f (relLabel : RelLabel) =
                 cypher {
                     MATCH (Node() -- Rel relLabel -- Node())
-                    RETURN ()
                 }
 
             f relLabel
@@ -816,7 +748,51 @@ module Relationship =
             cypher {
                 let relLabel = RelLabel label / RelLabel label / RelLabel label
                 MATCH (Node() -- Rel relLabel -- Node())
-                RETURN ()
             }
             |> Cypher.rawQuery
             |> fun q -> Assert.Equal(rtnSt, q)
+
+namespace FSharp.Data.Cypher.Test.OPTIONAL_MATCH
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` = 
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            OPTIONAL_MATCH (Node() -- Rel () -- Node())
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("OPTIONAL MATCH ()-[]-()", q)
+
+namespace FSharp.Data.Cypher.Test.CREATE
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` = 
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            CREATE (Node() -- Rel () -- Node())
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("CREATE ()-[]-()", q)
+
+namespace FSharp.Data.Cypher.Test.MERGE
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` = 
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            MERGE (Node() -- Rel () -- Node())
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("MERGE ()-[]-()", q)
