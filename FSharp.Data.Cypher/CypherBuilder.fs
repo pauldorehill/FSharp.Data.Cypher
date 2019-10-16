@@ -34,12 +34,10 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let nonParameterizedSb = Text.StringBuilder()
     let addParamterized (str : string) = parameterizedSb.Append str |> ignore
     let addNonParamterized (str : string) = nonParameterizedSb.Append str |> ignore
-
-    static member KeySymbol = "$"
-    static member FixStringParameter (o : obj) =
+    let rec fixStringParameter (o : obj) =
         match o with
         | :? unit -> "null"
-        | :? string as s ->  sprintf "\"%s\"" s
+        | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // So far only \ causes issues
         | :? bool as b -> b.ToString().ToLower()
         | :? Generic.List<obj> as xs ->
             xs
@@ -49,14 +47,16 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
         | :? Generic.Dictionary<string, obj> as d ->
             d
-            |> Seq.map (fun kv -> kv.Key + ": " + StatementBuilder.FixStringParameter kv.Value)
+            |> Seq.map (fun kv -> kv.Key + ": " + fixStringParameter kv.Value)
             |> String.concat ", "
             |> sprintf "{%s}"
         | _ -> string o
 
+    static member internal KeySymbol = "$"
+
     member private this.Clause = clause
 
-    member this.GenerateKey() =
+    member private this.GenerateKey() =
         let key = sprintf "step%iparam%i" stepCount prmCount
         prmCount <- prmCount + 1
         addParamterized StatementBuilder.KeySymbol
@@ -66,11 +66,17 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     member private this.Add (o : obj option) =
         let key = this.GenerateKey()
         match o with
-        | Some o -> addNonParamterized (StatementBuilder.FixStringParameter o)
+        | Some o -> addNonParamterized (fixStringParameter o)
         | None -> addNonParamterized "null"
         prms <- (key, o) :: prms
+        key
 
     member this.AddObj (o : obj) =
+        Serialization.fixTypes o
+        |> this.Add
+        |> ignore
+
+    member this.AddObjRtnKey (o : obj) =
         Serialization.fixTypes o
         |> this.Add
 
@@ -78,13 +84,15 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         QuotationEvaluator.EvaluateUntyped expr
         |> Serialization.fixTypes
         |> this.Add
-
+        |> ignore
+    
     member this.AddSerializedType expr =
         QuotationEvaluator.EvaluateUntyped expr
         |> Serialization.serialize
         |> box
         |> Some
         |> this.Add
+        |> ignore
 
     member _.AddStatement (stmt : string) =
         addNonParamterized stmt
@@ -171,17 +179,19 @@ module private MatchClause =
                 let getValues expr =
                     match expr with
                     | Var v -> Choice1Of3 varDic.[v.Name]
-                    | Value (o, _) -> Choice2Of3 o
-                    | PropertyGet (Some _, _, _) -> Choice3Of3 ()
                     | PropertyGet (None, _, _) -> Choice1Of3 expr
                     | NewUnionCase (ui, _) when Deserialization.isOption ui.DeclaringType -> Choice1Of3 expr
+                    | Value (o, _) -> Choice2Of3 o
+                    | PropertyGet (Some _, _, _) -> Choice3Of3 ()
                     | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
 
                 let fieldValues = List.map getValues exprs
 
+                let mutable isFirst = true
+
                 let build i (pi : PropertyInfo) =
                     let name () =
-                        if i <> 0 then stmBuilder.AddStatement ", "
+                        if isFirst then isFirst <- false else stmBuilder.AddStatement ", "
                         stmBuilder.AddStatement pi.Name
                         stmBuilder.AddStatement ": "
 
@@ -499,22 +509,24 @@ module private ReturnClause =
         let stmBuilder = StatementBuilder(clause, stepState)
 
         let maker (expr : Expr) =
-            match expr with
-            | Value (o, _) ->
-                StatementBuilder.FixStringParameter o
-                |> stmBuilder.AddStatement
-            | Var v ->
-                stmBuilder.AddStatement v.Name
-            | PropertyGet (Some (Var v), pi, _) ->
-                stmBuilder.AddStatement v.Name
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
-            | PropertyGet (None, pi, _) ->
-                stmBuilder.AddStatement pi.Name
-            | _ ->
-                exp
-                |> sprintf "RETURN. Trying to extract statement but couldn't match expression: %A"
-                |> invalidOp
+            let key =
+                match expr with
+                | Value (o, _) -> Some (stmBuilder.AddObjRtnKey o)
+                | Var v ->
+                    stmBuilder.AddStatement v.Name
+                    None
+                | PropertyGet (Some (Var v), pi, _) ->
+                    stmBuilder.AddStatement v.Name
+                    stmBuilder.AddStatement "."
+                    stmBuilder.AddStatement pi.Name
+                    None
+                | PropertyGet (None, pi, _) ->
+                    stmBuilder.AddStatement pi.Name
+                    None
+                | _ ->
+                    exp
+                    |> sprintf "RETURN. Trying to extract statement but couldn't match expression: %A"
+                    |> invalidOp
 
             fun (di : Generic.IReadOnlyDictionary<string, obj>) ->
 
@@ -526,7 +538,9 @@ module private ReturnClause =
 
                 match expr with
                 | Value (o, typ) ->
-                    let key = StatementBuilder.FixStringParameter o
+                    // Safe to call .Value since will only be here when isSome
+                    // Primatives are returned from Neo4j with the "$" prefix
+                    let key = StatementBuilder.KeySymbol + key.Value
                     let rtnO = di.[key]
                     let o = Deserialization.fixTypes key typ rtnO
                     Expr.Value(o, typ)
@@ -752,8 +766,7 @@ module CypherBuilder =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
                     | SpecificCall <@@ this.Yield @@> _ -> state
-                    //| SpecificCall <@ this.For @> (_, _, _) -> state
-                    | Call (_, mi, [ varValue; yieldEnd ]) when mi.Name = "For" -> state
+                    | Call (_, mi, _) when mi.Name = "For" -> state
                     | Let (_, _, expr)
                     | Lambda (_, expr) -> inner state expr
                     | MatchCreateMerge <@@ this.MATCH @@> MATCH state inner stepList
