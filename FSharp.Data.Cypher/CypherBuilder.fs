@@ -62,13 +62,64 @@ type QuotationEvaluator =
 type Query<'T,'Result> =
     private | NA
 
+type private CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
+    member _.Clause = clause
+    member _.Statement = statement
+    member _.RawStatement = rawStatement
+    member _.Parameters = parameters
+    static member Build (cypherSteps : CypherStep list) (continuation : ReturnContination<'T> option) =
+        let sb = new Text.StringBuilder()
+        let makeQuery (paramterized : bool) (multiline : bool) =
+            let add (s : string) = sb.Append s |> ignore
+            let total = cypherSteps.Length
+            let mutable count : int = 1
+
+            for step in cypherSteps do
+                add (string step.Clause)
+                if paramterized 
+                then 
+                    add " " 
+                    add step.Statement 
+                else
+                    add " "
+                    add step.RawStatement
+                if count < total then 
+                    if multiline then add Environment.NewLine else add " "
+                count <- count + 1
+
+            let qry = string sb
+            sb.Clear() |> ignore
+            qry
+
+        let parameters = cypherSteps |> List.collect (fun cs -> cs.Parameters) 
+        let query = makeQuery true false
+        let queryMultiline = makeQuery true true
+        let rawQuery = makeQuery false false
+        let rawQueryMultiline = makeQuery false true
+        let isWrite = cypherSteps |> List.exists (fun x -> x.Clause.IsWrite)
+
+        Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
+
+[<Sealed; NoComparison; NoEquality>]
 type private StepBuilder private (stepNo : int, steps : CypherStep list) =
     member _.StepNo = stepNo
-    member _.Steps = steps
+    member private this.Steps = steps
     member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
     static member Init = StepBuilder(1, [])
+    member this.Build (rtn : ReturnContination<'T> option) = 
+        let steps = 
+            match rtn with // When no return, add a default of RETURN ()
+            | None -> 
+                let rtnClause = StatementBuilder(RETURN, this)
+                rtnClause.AddObj ()
+                this.Steps @ [ rtnClause.Build ]
+            | Some _ -> this.Steps
 
-type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
+        let rtn = if typeof<'T> = typeof<unit> then None else rtn // If returning unit, no point running the continuation
+
+        CypherStep.Build steps rtn
+
+and private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let mutable prms : ParameterList = []
     let mutable prmCount : int = 1
     let stepCount = stepBuilder.StepNo
@@ -657,18 +708,6 @@ module CypherBuilder =
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
 
-    type private ReturnContination<'T> =
-        | Continuation of (Generic.IReadOnlyDictionary<string, obj> -> 'T)
-        | NoReturnClause
-        member this.Update v =
-            match this with
-            | NoReturnClause -> Continuation v
-            | Continuation _ -> invalidOp "Only 1 x RETURN clause is allowed in a Cypher query."
-        member this.Value =
-            match this with
-            | NoReturnClause -> invalidOp "You must always return something since its F# - use RETURN ()"
-            | Continuation c -> c
-
     type CypherBuilder() =
 
         member _.Yield (source : 'T) : Query<'T,unit> = NA
@@ -758,13 +797,13 @@ module CypherBuilder =
                     Some (fExpr state stepAbove)
                 | _ -> None
 
-            let mutable returnStatement : ReturnContination<'Result> = NoReturnClause
+            let mutable returnStatement : ReturnContination<'Result> option = None
 
             let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let (state, continuation) = ReturnClause.make<'Result> state clause thisStep
-                    returnStatement <- returnStatement.Update continuation
+                    returnStatement <- Some continuation
                     Some (fExpr state stepAbove)
                 | _ -> None
 
@@ -810,6 +849,6 @@ module CypherBuilder =
 
             let stepBuilder = buildQry expr.Raw
 
-            Cypher(stepBuilder.Steps, returnStatement.Value)
+            stepBuilder.Build returnStatement
 
     let cypher = CypherBuilder()

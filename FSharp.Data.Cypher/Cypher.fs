@@ -4,6 +4,9 @@ open System
 open System.Collections
 open Neo4j.Driver
 
+type ReturnContination<'T> = Generic.IReadOnlyDictionary<string, obj> -> 'T
+type ParameterList = (string * obj option) list
+
 module ClauseNames =
     
     let [<Literal>] MATCH = "MATCH"
@@ -118,46 +121,14 @@ module TransactionResult =
     
     let asyncRollback (tr : TransactionResult<'T>) = tr.AsyncRollback()
 
-type ParameterList = (string * obj option) list
-
-type CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
-    member _.Clause = clause
-    member _.Statement = statement
-    member _.RawStatement = rawStatement
-    member _.Parameters = parameters
-
-type Cypher<'T>(cypherSteps : CypherStep list, continuation : Generic.IReadOnlyDictionary<string, obj> -> 'T) =
-    let sb = new Text.StringBuilder()
-    let makeQuery (paramterized : bool) (multiline : bool) =
-        let add (s : string) = sb.Append s |> ignore
-        let total = cypherSteps.Length
-        let mutable count : int = 1
-
-        for step in cypherSteps do
-            add (string step.Clause)
-            if paramterized 
-            then 
-                add " " 
-                add step.Statement 
-            else
-                add " "
-                add step.RawStatement
-            if count < total then 
-                if multiline then add Environment.NewLine else add " "
-            count <- count + 1
-
-        let qry = string sb
-        sb.Clear() |> ignore
-        qry
-
-    member _.QuerySteps = cypherSteps
-    member _.Continuation = continuation
-    member _.Parameters = cypherSteps |> List.collect (fun cs -> cs.Parameters) 
-    member _.Query = makeQuery true false
-    member _.QueryMultiline = makeQuery true true
-    member _.RawQuery = makeQuery false false
-    member _.RawQueryMultiline = makeQuery false true
-    member _.IsWrite = cypherSteps |> List.exists (fun x -> x.Clause.IsWrite)
+type Cypher<'T> internal (continuation , parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite) =
+    member _.Continuation : ReturnContination<'T> option = continuation
+    member _.Parameters : ParameterList = parameters
+    member _.Query : string = query
+    member _.QueryMultiline : string = queryMultiline
+    member _.RawQuery : string = rawQuery 
+    member _.RawQueryMultiline : string = rawQueryMultiline
+    member _.IsWrite : bool = isWrite
 
 module Cypher =
 
@@ -182,7 +153,11 @@ module Cypher =
                     if cypher.IsWrite then session.WriteTransactionAsync run else session.ReadTransactionAsync run
                     |> Async.AwaitTask
 
-                let! results = statementCursor.ToListAsync(fun record -> cypher.Continuation record.Values |> map) |> Async.AwaitTask
+                let! results = 
+                    match cypher.Continuation with
+                    | Some continuation -> statementCursor.ToListAsync(fun record -> continuation record.Values |> map) |> Async.AwaitTask
+                    | None -> async.Return(ResizeArray())
+
                 let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
             
                 return QueryResult(Seq.toArray results, summary)
@@ -202,7 +177,10 @@ module Cypher =
 
     let run (driver : IDriver) cypher = runMap driver id cypher
 
-    let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) = cypher.Continuation di
+    let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
+        cypher.Continuation
+        |> Option.map (fun continuation -> continuation di)
+        |> Option.defaultValue Unchecked.defaultof<'T>
 
     let rawQuery (cypher : Cypher<'T>) = cypher.RawQuery
     
@@ -214,9 +192,17 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
+
                 let! statementCursor = transaction.RunAsync(cypher.Query, makeParameters cypher) |> Async.AwaitTask
-                let! results = statementCursor.ToListAsync(fun record -> cypher.Continuation record.Values |> map) |> Async.AwaitTask
+
+                let! results = 
+                    match cypher.Continuation with
+                    | Some continuation -> 
+                        statementCursor.ToListAsync(fun record -> continuation record.Values |> map) |> Async.AwaitTask
+                    | None -> async.Return(ResizeArray())
+
                 let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
+
                 return TransactionResult(Array.ofSeq results, summary, session, transaction)
             }
         
