@@ -152,12 +152,14 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
             for step in this.Steps do
                 add (string step.Clause)
                 if paramterized 
-                then 
-                    add " " 
-                    add step.Statement 
+                then
+                    if step.Statement <> "" then
+                        add " " 
+                        add step.Statement 
                 else
-                    add " "
-                    add step.RawStatement
+                    if step.Statement <> "" then
+                        add " "
+                        add step.RawStatement
                 if count < total then 
                     if multiline then add Environment.NewLine else add " "
                 count <- count + 1
@@ -559,10 +561,10 @@ module private MatchClause =
         inner expr
         stepState.Add stmBuilder.Build
 
-module private WhereAndSetStatement =
+module private WhereSetClause =
 
-    let [<Literal>] private IFSNode = "IFSNode"
-    let [<Literal>] private IFSRelationship = "IFSRelationship"
+    let [<Literal>] IFSNode = "IFSNode"
+    let [<Literal>] IFSRelationship = "IFSRelationship"
 
     let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
 
@@ -850,7 +852,7 @@ module CypherBuilder =
             let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let state = WhereAndSetStatement.make state clause thisStep
+                    let state = WhereSetClause.make state clause thisStep
                     Some (fExpr state stepAbove)
                 | _ -> None
 
@@ -898,8 +900,7 @@ module CypherBuilder =
                     | Basic <@@ this.ORDER_BY @@> ORDER_BY state inner stepList
                     | NoStatement <@@ this.DESC @@> DESC state inner stepList
                     | Basic <@@ this.SKIP @@> SKIP state inner stepList
-                    | Basic <@@ this.LIMIT @@> LIMIT state inner stepList
-                    | Basic <@@ this.DELETE @@> DELETE state inner stepList -> stepList
+                    | Basic <@@ this.LIMIT @@> LIMIT state inner stepList -> stepList
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr

@@ -11,6 +11,7 @@
     <Compile Include="Match.fs" />
     <Compile Include="Return.fs" />
     <Compile Include="WhereSet.fs" />
+    <Compile Include="Basic.fs" />
     <Compile Include="MovieGraph.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
