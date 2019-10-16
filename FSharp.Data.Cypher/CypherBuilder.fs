@@ -101,23 +101,23 @@ type private CypherStep(clause : Clause, statement : string, rawStatement : stri
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
 
 [<Sealed; NoComparison; NoEquality>]
-type private StepBuilder private (stepNo : int, steps : CypherStep list) =
+type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
     member _.StepNo = stepNo
-    member private this.Steps = steps
+    member private this.Steps = stepList
     member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
     static member Init = StepBuilder(1, [])
     member this.Build (rtn : ReturnContination<'T> option) = 
-        let steps = 
-            match rtn with // When no return, add a default of RETURN ()
-            | None -> 
-                let rtnClause = StatementBuilder(RETURN, this)
-                rtnClause.AddObj ()
-                this.Steps @ [ rtnClause.Build ]
-            | Some _ -> this.Steps
+        //let steps = 
+        //    match rtn with // When no return, add a default of RETURN ()
+        //    | None -> 
+        //        let rtnClause = StatementBuilder(RETURN, this)
+        //        rtnClause.AddObj ()
+        //        this.Steps @ [ rtnClause.Build ]
+        //    | Some _ -> this.Steps
 
         let rtn = if typeof<'T> = typeof<unit> then None else rtn // If returning unit, no point running the continuation
 
-        CypherStep.Build steps rtn
+        CypherStep.Build this.Steps rtn
 
 and private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let mutable prms : ParameterList = []
