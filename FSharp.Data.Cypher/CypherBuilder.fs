@@ -7,13 +7,12 @@ open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
-//open FSharp.Quotations.Evaluator
 open Neo4j.Driver
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
 module ClauseNames =
-    
+
     let [<Literal>] MATCH = "MATCH"
     let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
     let [<Literal>] CREATE = "CREATE"
@@ -32,7 +31,7 @@ module ClauseNames =
     let [<Literal>] REMOVE = "REMOVE"
     let [<Literal>] FOREACH = "FOREACH"
 
-type Clause = 
+type Clause =
     | MATCH
     | OPTIONAL_MATCH
     | CREATE
@@ -68,17 +67,11 @@ type Clause =
         | REMOVE -> ClauseNames.REMOVE
         | FOREACH -> ClauseNames.FOREACH
         |> fun s -> s.Replace("_", " ")
-    member this.IsWrite =   
+    member this.IsWrite =
         match this with
         | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
         | _ -> false
     member this.IsRead = not (this.IsWrite)
-         
-module Clause =
-    
-    let isRead (clause : Clause) = clause.IsRead
-
-    let isWrite (clause : Clause) = clause.IsWrite
 
 type private Operators =
     | OpEqual
@@ -142,8 +135,8 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
     member private this.Steps = stepList
     member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
     static member Init = StepBuilder(1, [])
-    member this.Build (continuation : ReturnContination<'T> option) = 
-        let sb = new Text.StringBuilder()
+    member this.Build (continuation : ReturnContination<'T> option) =
+        let sb = Text.StringBuilder()
         let makeQuery (paramterized : bool) (multiline : bool) =
             let add (s : string) = sb.Append s |> ignore
             let total = this.Steps.Length
@@ -151,16 +144,16 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
 
             for step in this.Steps do
                 add (string step.Clause)
-                if paramterized 
+                if paramterized
                 then
                     if step.Statement <> "" then
-                        add " " 
-                        add step.Statement 
+                        add " "
+                        add step.Statement
                 else
                     if step.Statement <> "" then
                         add " "
                         add step.RawStatement
-                if count < total then 
+                if count < total then
                     if multiline then add Environment.NewLine else add " "
                 count <- count + 1
 
@@ -168,14 +161,14 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
             sb.Clear() |> ignore
             qry
 
-        let parameters = this.Steps |> List.collect (fun cs -> cs.Parameters) 
+        let parameters = this.Steps |> List.collect (fun cs -> cs.Parameters)
         let query = makeQuery true false
         let queryMultiline = makeQuery true true
         let rawQuery = makeQuery false false
         let rawQueryMultiline = makeQuery false true
         let isWrite = this.Steps |> List.exists (fun x -> x.Clause.IsWrite)
         let continuation = if typeof<'T> = typeof<unit> then None else continuation // If returning unit, no point running the continuation
-        
+
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
 
 type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
@@ -237,7 +230,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         |> Serialization.fixTypes
         |> this.Add
         |> ignore
-    
+
     member this.AddSerializedType expr =
         QuotationEvaluator.EvaluateUntyped expr
         |> Serialization.serialize
@@ -515,7 +508,7 @@ module private MatchClause =
 
         let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
             let isTyp (ci : ConstructorInfo) =
-                if ci.DeclaringType.IsGenericType 
+                if ci.DeclaringType.IsGenericType
                 then ci.DeclaringType.GetGenericTypeDefinition() = typ
                 else ci.DeclaringType = typ
 
@@ -525,8 +518,8 @@ module private MatchClause =
                 else pi.ParameterType
 
             match expr with
-            | NewObject (ci, paramsExpr) when isTyp ci -> 
-                let ctTypes =   
+            | NewObject (ci, paramsExpr) when isTyp ci ->
+                let ctTypes =
                     ci.GetParameters()
                     |> Array.map getParamType
                 Some (fResult ctTypes paramsExpr)
@@ -772,7 +765,7 @@ module CypherBuilder =
         member _.Yield (source : 'T) : Query<'T,unit> = NA
 
         member _.For (source : Node<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
-        
+
         member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
 
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
