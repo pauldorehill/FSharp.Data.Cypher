@@ -23,11 +23,13 @@ type ActedIn =
     interface IFSRelationship<ActedIn>
     member _.Label = RelLabel "ACTED_IN"
     
-type Directed() = 
+type Directed = 
+    private | NA
     interface IFSRelationship<Directed>
     member _.Label = RelLabel "DIRECTED"
     
-type Follows() = 
+type Follows = 
+    | NA
     interface IFSRelationship<Follows>
     member _.Label = RelLabel "FOLLOWS"
     

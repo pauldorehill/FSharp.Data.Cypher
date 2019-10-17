@@ -6,7 +6,7 @@ open System.Reflection
 open FSharp.Reflection
 open Neo4j.Driver
 
-module private Deserialization =
+module Deserialization =
     
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
@@ -83,23 +83,6 @@ module private Deserialization =
             localType
             |> sprintf "Unsupported property/value: %s. Type: %A" name
             |> invalidOp
-    
-
-    //let (|ParameterlessClass|_|) (obs : obj [] option)  (typ : Type) = 
-    //    if typ.IsClass
-    //    then 
-    //        match obs with
-    //        | Some obs -> Activator.CreateInstance(typ, obs) |> Some
-    //        | None ->
-    //            let ctrs = typ.GetConstructors()
-    //            if ctrs.Length = 0 then 
-    //                sprintf "Class of Type: %s is static. It needs a parameterless constructor. eg. type %s () =" typ.Name typ.Name
-    //                |> invalidOp 
-    //            elif ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty)
-    //            then 
-    //                Activator.CreateInstance typ |> Some
-    //            else None
-    //    else None
 
 
     // TODO: Class serialization is tricky due to the order that the values have to be passed
@@ -113,28 +96,44 @@ module private Deserialization =
 
     let (|Record|SingleCaseDU|PrmLessClassStruct|) (typ : Type) =
         let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-        let mutable UCI : UnionCaseInfo option = None
 
-        let isSingleCase () =
-            match FSharpType.GetUnionCases(typ, bindingFlags) with
-            | uci when uci.Length = 1 -> 
-                UCI <- Some uci.[0]
+        let mutable uCI = None
+        let mutable uCIFields = None
+        let isSingleCase() =
+            let u = FSharpType.GetUnionCases(typ, bindingFlags)
+            let fields = u.[0].GetFields()
+            if u.Length = 1 && fields.Length <= 1 then 
+                uCI <- Some u.[0]
+                uCIFields <- Some fields
                 true
-            | _ -> false
+            else false
 
         if FSharpType.IsRecord typ then
+
             let props = FSharpType.GetRecordFields typ
             let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
             Record (props, nullMaker)
         
-        elif FSharpType.IsUnion typ && isSingleCase () then
-            let props = typ.GetProperties() |> Array.filter (fun pi -> pi.Name <> "Tag" && pi.Name <> "Item")
-            let nullMaker () = FSharpValue.MakeUnion(UCI.Value, Array.zeroCreate props.Length, true)
-            SingleCaseDU (props, nullMaker, UCI.Value)
+        elif FSharpType.IsUnion(typ, bindingFlags) && isSingleCase() then
+            let props = uCIFields.Value
+            let nullMaker () = FSharpValue.MakeUnion(uCI.Value, Array.zeroCreate props.Length, true)
+            SingleCaseDU (props, nullMaker, uCI.Value)
 
-        elif typ.IsClass || typ.IsValueType then PrmLessClassStruct
-        else 
-            invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
+        elif typ.IsClass || typ.IsValueType then
+
+            let ctrs = typ.GetConstructors()
+            match ctrs.Length with
+            | 1 -> 
+                let prms = ctrs.[0].GetParameters()
+                match prms.Length with 
+                | 0 -> 
+                    let props = typ.GetProperties()
+                    let classMaker () = Activator.CreateInstance typ
+                    PrmLessClassStruct (props, classMaker)
+                | _ -> invalidOp "Only paramterless classes are supported"
+            | _ -> invalidOp "Only non static, paramterless classes are supported"
+
+        else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
 
     let deserialize (typ : Type) (dic : Generic.IReadOnlyDictionary<string,obj>) =
 
@@ -144,7 +143,9 @@ module private Deserialization =
             let makeTypeInstance () = 
                 typeInstance <- Some (nullMaker ())
                 
-            let isParameterlessProp (pi : PropertyInfo) = pi.GetMethod.GetParameters() |> Array.isEmpty
+            // This is here for classes/structs -> need to guard against DU
+            let isParameterlessProp (pi : PropertyInfo) = 
+                not (FSharpType.IsUnion typ) && pi.GetMethod.GetParameters() |> Array.isEmpty
                 
             let maker (pi : PropertyInfo) =
                 match dic.TryGetValue pi.Name with
@@ -152,11 +153,9 @@ module private Deserialization =
                 | false, _ when isOption pi.PropertyType -> box None
                 | false, _ when isParameterlessProp pi -> 
                     if typeInstance.IsNone then makeTypeInstance ()
-                    pi.GetValue typeInstance.Value
+                    pi.GetValue typeInstance.Value // null check here?
                 | _ -> 
-                    sprintf
-                        "Could not deserialize to %s type from the graph.
-                        The required property was not found: %s" typ.Name pi.Name
+                    sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
                     |> invalidOp
 
             Array.map maker props
@@ -165,26 +164,24 @@ module private Deserialization =
         | Record (props, nullMaker) -> 
             let obs = makeObj props nullMaker
             FSharpValue.MakeRecord(typ, obs, true)
-        | SingleCaseDU (props, nullMaker, ucs)  -> 
-            let obs = makeObj props nullMaker
-            FSharpValue.MakeUnion(ucs, obs, true)
-        | PrmLessClassStruct ->
-            invalidOp "Not written"
-
+        | SingleCaseDU (props, nullMaker, ucs) ->
+            if props.Length = 0 then nullMaker() 
+            else 
+                let obs = makeObj props nullMaker
+                FSharpValue.MakeUnion(ucs, obs, true)
+        | PrmLessClassStruct (_, nullMaker) -> nullMaker() // No members to set
 
     let createNullRecordOrClass typ =
         match typ with
         | Record (_, nullMaker) -> nullMaker()
         | SingleCaseDU (_, nullMaker, _)  -> nullMaker()
-        | PrmLessClassStruct ->
-            invalidOp "Not written"
+        | PrmLessClassStruct (props, nullMaker) -> nullMaker()
 
     let getProperties typ =
         match typ with
         | Record (props, _) -> props
         | SingleCaseDU (props, _, _)  -> props
-        | PrmLessClassStruct ->
-            invalidOp "Not written"
+        | PrmLessClassStruct (props, _) -> props
 
 module Serialization =  
 
