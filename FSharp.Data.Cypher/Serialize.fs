@@ -6,7 +6,7 @@ open System.Reflection
 open FSharp.Reflection
 open Neo4j.Driver
 
-module Deserialization =
+module private Deserialization =
     
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
@@ -83,42 +83,24 @@ module Deserialization =
             localType
             |> sprintf "Unsupported property/value: %s. Type: %A" name
             |> invalidOp
+    
 
-    let createRecordOrClass (typ : Type) (obs : obj []) =
-        if FSharpType.IsRecord typ then FSharpValue.MakeRecord(typ, obs)
-        elif typ.IsClass then
-            if Array.isEmpty obs || obs.Length = 1 then Activator.CreateInstance typ
-            else invalidOp "Only parameterless classes are supported"
-        else invalidOp "Type was not a class or a record."
+    //let (|ParameterlessClass|_|) (obs : obj [] option)  (typ : Type) = 
+    //    if typ.IsClass
+    //    then 
+    //        match obs with
+    //        | Some obs -> Activator.CreateInstance(typ, obs) |> Some
+    //        | None ->
+    //            let ctrs = typ.GetConstructors()
+    //            if ctrs.Length = 0 then 
+    //                sprintf "Class of Type: %s is static. It needs a parameterless constructor. eg. type %s () =" typ.Name typ.Name
+    //                |> invalidOp 
+    //            elif ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty)
+    //            then 
+    //                Activator.CreateInstance typ |> Some
+    //            else None
+    //    else None
 
-    let createNullRecordOrClass (typ : Type) =
-        if FSharpType.IsRecord typ then 
-            FSharpType.GetRecordFields(typ).Length
-            |> Array.zeroCreate
-            |> fun obs -> FSharpValue.MakeRecord(typ, obs)
-        elif typ.IsClass then 
-            let ctrs = typ.GetConstructors()
-            if ctrs.Length = 0 then 
-                (typ.Name, typ.Name)
-                ||> sprintf "Class of Type: %s is static. It needs a parameterless constructor. eg. type %s () ="
-                |> invalidOp 
-
-            elif ctrs.Length = 1 && (ctrs |> Array.head |> fun c -> c.GetParameters() |> Array.isEmpty) 
-            then Activator.CreateInstance typ
-            else
-                typ.Name
-                |> sprintf "Only parameterless classes are supported. Type: %s"
-                |> invalidOp 
-            
-        else 
-            typ.Name
-            |> sprintf "Type %s was not a F# record or class"
-            |> invalidOp
-
-    let getProperties (typ : Type) =
-        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
-        if FSharpType.IsRecord typ then FSharpType.GetRecordFields typ
-        else typ.GetProperties bindingFlags
 
     // TODO: Class serialization is tricky due to the order that the values have to be passed
     // into the constructor doesn't match the decleration order on the class
@@ -128,30 +110,77 @@ module Deserialization =
     // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     // Or use of quotations as an equvialent
-    let deserialize (typ : Type) (entity : IEntity) =
-        let mutable typeInstance = None
-        
-        let makeTypeInstance () = 
-            typeInstance <- Some (createNullRecordOrClass typ)
+    let deserialize (typ : Type) (dic : Generic.IReadOnlyDictionary<string,obj>) =
 
-        let makeObj (pi : PropertyInfo) =
-            match entity.Properties.TryGetValue pi.Name with
-            | true, v -> fixTypes pi.Name pi.PropertyType v
-            | _ ->
-                if isOption pi.PropertyType then box None
-                elif true then
+        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+
+        let makeObj props nullMaker =
+            let mutable typeInstance = None
+            
+            let makeTypeInstance () = 
+                typeInstance <- Some (nullMaker ())
+            
+            let isParameterlessProp (pi : PropertyInfo) = pi.GetMethod.GetParameters() |> Array.isEmpty
+            
+            let maker (pi : PropertyInfo) =
+                match dic.TryGetValue pi.Name with
+                | true, v -> fixTypes pi.Name pi.PropertyType v
+                | false, _ when isOption pi.PropertyType -> box None
+                | false, _ when isParameterlessProp pi -> 
                     if typeInstance.IsNone then makeTypeInstance ()
-                    // Try and find members that take no parameters
                     pi.GetValue typeInstance.Value
-                    
-                else
-                    sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
-                    |> invalidOp
+                | _ ->
+                        sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
+                        |> invalidOp
 
-        typ
-        |> getProperties 
-        |> Array.map makeObj
-        |> fun xs -> typ, xs
+            Array.map maker props
+
+        let (|Record|_|) (typ : Type) =
+            if FSharpType.IsRecord typ 
+            then
+                let props = FSharpType.GetRecordFields typ
+                let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
+                let obs = makeObj props nullMaker
+                Some (FSharpValue.MakeRecord(typ, obs, true))
+            else None
+        
+        let (|SingleCaseDU|_|) (typ : Type) = 
+            match FSharpType.IsUnion typ, FSharpType.GetUnionCases(typ, bindingFlags) with
+            | true, ucs when ucs.Length = 1 ->
+                let props = typ.GetProperties() |> Array.filter (fun pi -> pi.Name <> "Tag" && pi.Name <> "Item")
+                let nullMaker () = FSharpValue.MakeUnion(ucs.[0], Array.zeroCreate props.Length, true)
+                let obs = makeObj props nullMaker
+                Some (FSharpValue.MakeUnion(ucs.[0], obs, true))
+            | _ -> None
+
+     
+        //let mutable typeInstance = None
+        //let makeTypeInstance () = 
+        //    typeInstance <- Some (createNullRecordOrClass typ)
+
+        //let isParameterlessProp (pi : PropertyInfo) = pi.GetMethod.GetParameters() |> Array.isEmpty
+
+        //let makeObj (pi : PropertyInfo) =
+        //    match dic.TryGetValue pi.Name with
+        //    | true, v -> fixTypes pi.Name pi.PropertyType v
+        //    | _ ->
+        //        if isOption pi.PropertyType then box None
+        //        // Try and find members that take no parameters
+        //        // This is related to issue with members on classes
+        //        elif isParameterlessProp pi 
+        //        then
+        //            if typeInstance.IsNone then makeTypeInstance ()
+        //            pi.GetValue typeInstance.Value
+        //        else
+        //            sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
+        //            |> invalidOp
+
+        match typ with
+        | Record o 
+        | SingleCaseDU o  -> o
+        //| ParameterlessClass obs o -> o
+        | _ -> invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
+
 
 module Serialization =  
 
@@ -171,7 +200,6 @@ module Serialization =
             |> Some
 
     // TODO : 
-    // Add in options and seq
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
     let fixTypes (o : obj) =

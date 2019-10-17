@@ -59,7 +59,23 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 <> 42", q)
+        
+    [<Fact>]
+    let ``Or`` () =
 
+        cypher {
+            WHERE (42 <> 42 || 42 <> 42)
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("WHERE 42 <> 42 OR 42 <> 42", q)
+    
+    [<Fact>]
+    let ``And`` () =
+        cypher {
+            WHERE (42 <> 42 && 42 <> 42)
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("WHERE 42 <> 42 AND 42 <> 42", q)
 
 module ``Option types`` =
     
