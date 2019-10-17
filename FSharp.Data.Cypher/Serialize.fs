@@ -110,18 +110,42 @@ module private Deserialization =
     // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     // Or use of quotations as an equvialent
-    let deserialize (typ : Type) (dic : Generic.IReadOnlyDictionary<string,obj>) =
 
+    let (|Record|SingleCaseDU|PrmLessClassStruct|) (typ : Type) =
         let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+        let mutable UCI : UnionCaseInfo option = None
+
+        let isSingleCase () =
+            match FSharpType.GetUnionCases(typ, bindingFlags) with
+            | uci when uci.Length = 1 -> 
+                UCI <- Some uci.[0]
+                true
+            | _ -> false
+
+        if FSharpType.IsRecord typ then
+            let props = FSharpType.GetRecordFields typ
+            let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
+            Record (props, nullMaker)
+        
+        elif FSharpType.IsUnion typ && isSingleCase () then
+            let props = typ.GetProperties() |> Array.filter (fun pi -> pi.Name <> "Tag" && pi.Name <> "Item")
+            let nullMaker () = FSharpValue.MakeUnion(UCI.Value, Array.zeroCreate props.Length, true)
+            SingleCaseDU (props, nullMaker, UCI.Value)
+
+        elif typ.IsClass || typ.IsValueType then PrmLessClassStruct
+        else 
+            invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
+
+    let deserialize (typ : Type) (dic : Generic.IReadOnlyDictionary<string,obj>) =
 
         let makeObj props nullMaker =
             let mutable typeInstance = None
-            
+                
             let makeTypeInstance () = 
                 typeInstance <- Some (nullMaker ())
-            
+                
             let isParameterlessProp (pi : PropertyInfo) = pi.GetMethod.GetParameters() |> Array.isEmpty
-            
+                
             let maker (pi : PropertyInfo) =
                 match dic.TryGetValue pi.Name with
                 | true, v -> fixTypes pi.Name pi.PropertyType v
@@ -129,58 +153,38 @@ module private Deserialization =
                 | false, _ when isParameterlessProp pi -> 
                     if typeInstance.IsNone then makeTypeInstance ()
                     pi.GetValue typeInstance.Value
-                | _ ->
-                        sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
-                        |> invalidOp
+                | _ -> 
+                    sprintf
+                        "Could not deserialize to %s type from the graph.
+                        The required property was not found: %s" typ.Name pi.Name
+                    |> invalidOp
 
             Array.map maker props
-
-        let (|Record|_|) (typ : Type) =
-            if FSharpType.IsRecord typ 
-            then
-                let props = FSharpType.GetRecordFields typ
-                let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
-                let obs = makeObj props nullMaker
-                Some (FSharpValue.MakeRecord(typ, obs, true))
-            else None
-        
-        let (|SingleCaseDU|_|) (typ : Type) = 
-            match FSharpType.IsUnion typ, FSharpType.GetUnionCases(typ, bindingFlags) with
-            | true, ucs when ucs.Length = 1 ->
-                let props = typ.GetProperties() |> Array.filter (fun pi -> pi.Name <> "Tag" && pi.Name <> "Item")
-                let nullMaker () = FSharpValue.MakeUnion(ucs.[0], Array.zeroCreate props.Length, true)
-                let obs = makeObj props nullMaker
-                Some (FSharpValue.MakeUnion(ucs.[0], obs, true))
-            | _ -> None
-
      
-        //let mutable typeInstance = None
-        //let makeTypeInstance () = 
-        //    typeInstance <- Some (createNullRecordOrClass typ)
-
-        //let isParameterlessProp (pi : PropertyInfo) = pi.GetMethod.GetParameters() |> Array.isEmpty
-
-        //let makeObj (pi : PropertyInfo) =
-        //    match dic.TryGetValue pi.Name with
-        //    | true, v -> fixTypes pi.Name pi.PropertyType v
-        //    | _ ->
-        //        if isOption pi.PropertyType then box None
-        //        // Try and find members that take no parameters
-        //        // This is related to issue with members on classes
-        //        elif isParameterlessProp pi 
-        //        then
-        //            if typeInstance.IsNone then makeTypeInstance ()
-        //            pi.GetValue typeInstance.Value
-        //        else
-        //            sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
-        //            |> invalidOp
-
         match typ with
-        | Record o 
-        | SingleCaseDU o  -> o
-        //| ParameterlessClass obs o -> o
-        | _ -> invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
+        | Record (props, nullMaker) -> 
+            let obs = makeObj props nullMaker
+            FSharpValue.MakeRecord(typ, obs, true)
+        | SingleCaseDU (props, nullMaker, ucs)  -> 
+            let obs = makeObj props nullMaker
+            FSharpValue.MakeUnion(ucs, obs, true)
+        | PrmLessClassStruct ->
+            invalidOp "Not written"
 
+
+    let createNullRecordOrClass typ =
+        match typ with
+        | Record (_, nullMaker) -> nullMaker()
+        | SingleCaseDU (_, nullMaker, _)  -> nullMaker()
+        | PrmLessClassStruct ->
+            invalidOp "Not written"
+
+    let getProperties typ =
+        match typ with
+        | Record (props, _) -> props
+        | SingleCaseDU (props, _, _)  -> props
+        | PrmLessClassStruct ->
+            invalidOp "Not written"
 
 module Serialization =  
 
@@ -248,8 +252,7 @@ module Serialization =
                 |> invalidOp
 
     let serialize (o : obj) =
-        let typ = o.GetType()
-        typ
+        o.GetType()
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
             match fixTypes (pi.GetValue o) with
