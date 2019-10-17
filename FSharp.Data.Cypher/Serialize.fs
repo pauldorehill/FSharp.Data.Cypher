@@ -94,14 +94,17 @@ module Deserialization =
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     // Or use of quotations as an equvialent
 
+    let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
+
     let (|Record|SingleCaseDU|PrmLessClassStruct|) (typ : Type) =
-        let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
 
         let mutable uCI = None
         let mutable uCIFields = None
         let isSingleCase() =
             let u = FSharpType.GetUnionCases(typ, bindingFlags)
-            let fields = u.[0].GetFields()
+            let fields = 
+                u.[0].GetFields()
+                //|> Array.map (fun pi -> pi.Name, fun (o, o2) -> pi.SetValue(o, o2))
             if u.Length = 1 && fields.Length <= 1 then 
                 uCI <- Some u.[0]
                 uCIFields <- Some fields
@@ -109,7 +112,6 @@ module Deserialization =
             else false
 
         if FSharpType.IsRecord typ then
-
             let props = FSharpType.GetRecordFields typ
             let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
             Record (props, nullMaker)
@@ -119,19 +121,20 @@ module Deserialization =
             let nullMaker () = FSharpValue.MakeUnion(uCI.Value, Array.zeroCreate props.Length, true)
             SingleCaseDU (props, nullMaker, uCI.Value)
 
-        elif typ.IsClass || typ.IsValueType then
+        elif not(FSharpType.IsUnion(typ, bindingFlags)) && (typ.IsClass || typ.IsValueType) then
+            let ctrs = typ.GetConstructors bindingFlags
+            if ctrs.Length = 0 then
+                invalidOp (sprintf "You must define a parameterless constructor for Class of type %s" typ.Name)
+            else
+                let classMaker = 
+                    ctrs
+                    |> Array.tryPick (fun c -> if c.GetParameters().Length = 0 then Some (fun () -> c.Invoke([||])) else None)
 
-            let ctrs = typ.GetConstructors()
-            match ctrs.Length with
-            | 1 -> 
-                let prms = ctrs.[0].GetParameters()
-                match prms.Length with 
-                | 0 -> 
+                match classMaker with
+                | Some classMaker ->
                     let props = typ.GetProperties()
-                    let classMaker () = Activator.CreateInstance typ
                     PrmLessClassStruct (props, classMaker)
-                | _ -> invalidOp "Only paramterless classes are supported"
-            | _ -> invalidOp "Only non static, paramterless classes are supported"
+                | None -> invalidOp "Only Classes/Structs with a parameterless constructor are supported"
 
         else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
 
@@ -145,13 +148,14 @@ module Deserialization =
                 
             // This is here for classes/structs -> need to guard against DU
             let isParameterlessProp (pi : PropertyInfo) = 
-                not (FSharpType.IsUnion typ) && pi.GetMethod.GetParameters() |> Array.isEmpty
+                not (FSharpType.IsUnion(typ, bindingFlags)) // 
+                && pi.GetMethod.GetParameters() |> Array.isEmpty
                 
             let maker (pi : PropertyInfo) =
                 match dic.TryGetValue pi.Name with
                 | true, v -> fixTypes pi.Name pi.PropertyType v
                 | false, _ when isOption pi.PropertyType -> box None
-                | false, _ when isParameterlessProp pi -> 
+                | false, _ when isParameterlessProp pi ->
                     if typeInstance.IsNone then makeTypeInstance ()
                     pi.GetValue typeInstance.Value // null check here?
                 | _ -> 
@@ -253,7 +257,7 @@ module Serialization =
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
             match fixTypes (pi.GetValue o) with
-            | Some o -> Some (pi.Name , o)
+            | Some o -> Some (pi.Name, o)
             | None -> None)
         |> Map.ofArray
         |> Generic.Dictionary
