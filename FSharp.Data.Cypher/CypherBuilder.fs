@@ -269,15 +269,77 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     member this.Build = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
 
 [<NoComparison; NoEquality>]
-type AS<'T> = 
-    | VarName
+type AS<'T>() = 
     member _.AS (x : AS<'T>) = Unchecked.defaultof<'T>
 
 module AggregatingFunctions =
     
-    let inline count (x : 'T) : AS<int64> = VarName
+    let inline count (x : 'T) = AS<int64>()
     
-    let inline collect (x : 'T) : AS<'T list> = VarName
+    let inline collect (x : 'T) = AS<'T list>()
+
+module private BasicClause =
+
+    let (|Count|_|)  (expr : Expr) =
+        match expr with
+        | Call (None, mi, [ Var v ]) when mi.Name = "count" ->
+            let f (stmBuilder : StatementBuilder) =
+                stmBuilder.AddStatement "count("
+                stmBuilder.AddStatement v.Name
+                stmBuilder.AddStatement ")"
+            Some f
+        | _ -> None
+
+    let (|AS|_|) (expr : Expr) =
+
+        let functionMatcher (expr : Expr) =
+            match expr with
+            | Count fStatement -> fStatement
+            | _ -> invalidOp (sprintf "AS, unmatched function: %A" expr)
+
+        match expr with
+        | Call (Some expr, mi, [ Var v ]) 
+            when mi.Name = "AS"
+            && mi.DeclaringType.IsGenericType
+            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> -> Some (v, functionMatcher expr)
+        | _ -> None
+
+    let make (stepState : StepBuilder) clause (expr : Expr) =
+
+        let stmBuilder = StatementBuilder(clause, stepState)
+
+        let extractStatement (exp : Expr) =
+            match exp with
+            | Value (o, _) -> stmBuilder.AddObj o
+            | Var v -> stmBuilder.AddStatement v.Name
+            | PropertyGet (Some (Var v), pi, _) ->
+                stmBuilder.AddStatement v.Name
+                stmBuilder.AddStatement "."
+                stmBuilder.AddStatement pi.Name
+            | PropertyGet (None, pi, _) -> stmBuilder.AddStatement pi.Name
+            | _ ->
+                exp
+                |> sprintf "Trying to extract statement but couldn't match expression: %A"
+                |> invalidOp
+
+        let makeTuple (stmBuilder: StatementBuilder) exprs =
+            exprs
+            |> List.iteri (fun i expr ->
+                if i <> 0 then stmBuilder.AddStatement ", "
+                extractStatement expr)
+
+        let rec inner expr =
+            match expr with
+            | Value _
+            | Var _
+            | PropertyGet _ -> extractStatement expr
+            | NewTuple exprs -> makeTuple stmBuilder exprs
+            | Let (_, _, expr)
+            | Lambda (_, expr) -> inner expr
+            | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
+
+        inner expr
+        stepState.Add stmBuilder.Build
 
 module private MatchClause =
 
@@ -680,6 +742,11 @@ module private ReturnClause =
                 | PropertyGet (None, pi, _) ->
                     stmBuilder.AddStatement pi.Name
                     None
+                | BasicClause.AS (v, fStatement) ->
+                    fStatement stmBuilder
+                    stmBuilder.AddStatement " AS "
+                    stmBuilder.AddStatement v.Name
+                    None
                 | _ ->
                     exp
                     |> sprintf "RETURN. Trying to extract statement but couldn't match expression: %A"
@@ -721,6 +788,9 @@ module private ReturnClause =
                     let rtnO = di.[key]
                     let o = deserializeIEntity pi.PropertyType rtnO
                     Expr.Value(o, pi.PropertyType)
+                | BasicClause.AS (v, _) ->
+                    let o = di.[v.Name]
+                    Expr.Value(o, o.GetType())
                 | _ ->
                     expr
                     |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
@@ -750,45 +820,6 @@ module private ReturnClause =
         let continuation = inner expr
         let result di = continuation di |> Expr.Cast<'T> |> QuotationEvaluator.Evaluate
         stepState.Add stmBuilder.Build, result
-
-module private BasicClause =
-
-    let make (stepState : StepBuilder) clause (expr : Expr) =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
-
-        let extractStatement (exp : Expr) =
-            match exp with
-            | Value (o, _) -> stmBuilder.AddObj o
-            | Var v -> stmBuilder.AddStatement v.Name
-            | PropertyGet (Some (Var v), pi, _) ->
-                stmBuilder.AddStatement v.Name
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
-            | PropertyGet (None, pi, _) -> stmBuilder.AddStatement pi.Name
-            | _ ->
-                exp
-                |> sprintf "Trying to extract statement but couldn't match expression: %A"
-                |> invalidOp
-
-        let makeTuple (stmBuilder: StatementBuilder) exprs =
-            exprs
-            |> List.iteri (fun i expr ->
-                if i <> 0 then stmBuilder.AddStatement ", "
-                extractStatement expr)
-
-        let rec inner expr =
-            match expr with
-            | Value _
-            | Var _
-            | PropertyGet _ -> extractStatement expr
-            | NewTuple exprs -> makeTuple stmBuilder exprs
-            | Let (_, _, expr)
-            | Lambda (_, expr) -> inner expr
-            | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
-
-        inner expr
-        stepState.Add stmBuilder.Build
 
 [<AutoOpen>]
 module CypherBuilder =
