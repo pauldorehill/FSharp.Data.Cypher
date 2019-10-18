@@ -728,7 +728,7 @@ module private ReturnClause =
         let stmBuilder = StatementBuilder(clause, stepState)
 
         let maker (expr : Expr) =
-            let key =
+            let customKey =
                 match expr with
                 | Value (o, _) -> Some (stmBuilder.AddObjRtnKey o)
                 | Var v ->
@@ -753,48 +753,28 @@ module private ReturnClause =
                     |> invalidOp
 
             fun (di : Generic.IReadOnlyDictionary<string, obj>) ->
+                let (key, typ) =
+                    match expr with
+                    | Value (_, typ) -> StatementBuilder.KeySymbol + customKey.Value, typ
+                    | Var v -> v.Name, v.Type
+                    | PropertyGet (Some (Var v), pi, _) -> v.Name + "." + pi.Name, pi.PropertyType
+                    | PropertyGet (None, pi, []) -> pi.Name, pi.PropertyType
+                    | BasicClause.AS (v, _) -> v.Name, v.Type.GenericTypeArguments.[0]
+                    | _ ->
+                        expr
+                        |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
+                        |> invalidOp
 
-                let deserializeIEntity (typ : Type) (returnObj : obj) =
-                    if isNull returnObj 
+                match di.[key] with
+                | :? IEntity as v -> 
+                    if isNull v 
                     then
                         sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" typ.Name
                         |> NullReferenceException
                         |> raise
-                    else
-                        returnObj
-                        :?> IEntity
-                        |> fun ie -> Deserialization.deserialize typ ie.Properties
-
-                match expr with
-                | Value (o, typ) ->
-                    // Safe to call .Value since will only be here when isSome
-                    // Primatives are returned from Neo4j with the "$" prefix
-                    let key = StatementBuilder.KeySymbol + key.Value
-                    let rtnO = di.[key]
-                    let o = Deserialization.fixTypes key typ rtnO
-                    Expr.Value(o, typ)
-                | Var v ->
-                    let key = v.Name
-                    let rtnO = di.[key]
-                    let o = deserializeIEntity v.Type rtnO
-                    Expr.Value(o, v.Type)
-                | PropertyGet (Some (Var v), pi, _) ->
-                    let key = sprintf "%s.%s" v.Name pi.Name
-                    let rtnO = di.[key]
-                    let o = Deserialization.fixTypes pi.Name pi.PropertyType rtnO
-                    Expr.Value(o, pi.PropertyType)
-                | PropertyGet (None, pi, []) ->
-                    let key = pi.Name
-                    let rtnO = di.[key]
-                    let o = deserializeIEntity pi.PropertyType rtnO
-                    Expr.Value(o, pi.PropertyType)
-                | BasicClause.AS (v, _) ->
-                    let o = di.[v.Name]
-                    Expr.Value(o, o.GetType())
-                | _ ->
-                    expr
-                    |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
-                    |> invalidOp
+                    else Deserialization.deserialize typ v.Properties
+                | v -> Deserialization.fixTypes key typ v
+                |> fun v -> Expr.Value(v, typ)
 
         let rec inner (expr : Expr) =
             match expr with
@@ -816,9 +796,8 @@ module private ReturnClause =
                     |> Expr.NewTuple
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
 
-        // Need to run so build the statement correctly
-        let continuation = inner expr
-        let result di = continuation di |> Expr.Cast<'T> |> QuotationEvaluator.Evaluate
+        let cont = inner expr // Must run, otherwise never builds RETURN
+        let result di = cont di |> Expr.Cast<'T> |> QuotationEvaluator.Evaluate 
         stepState.Add stmBuilder.Build, result
 
 [<AutoOpen>]
