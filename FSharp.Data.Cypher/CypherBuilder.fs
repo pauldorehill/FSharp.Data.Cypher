@@ -32,12 +32,12 @@ module ClauseNames =
     let [<Literal>] SKIP = "SKIP"
     let [<Literal>] UNION = "UNION"
     let [<Literal>] UNION_ALL = "UNION_ALL"
+    let [<Literal>] UNWIND = "UNWIND"
     let [<Literal>] WHERE = "WHERE"
     let [<Literal>] WITH = "WITH"
 
     // TODO - here for write/read check completeness
     let [<Literal>] REMOVE = "REMOVE"
-    let [<Literal>] UNWIND = "UNWIND"
     let [<Literal>] CALL = "CALL"
     let [<Literal>] YIELD = "YIELD"
 
@@ -57,15 +57,16 @@ type Clause =
     | ON_MATCH_SET
     | OPTIONAL_MATCH
     | ORDER_BY
+    | REMOVE
     | RETURN
     | RETURN_DISTINCT
     | SET
     | SKIP
     | UNION
     | UNION_ALL
+    | UNWIND
     | WHERE
     | WITH
-    | REMOVE
     override this.ToString() =
         match this with
         | ASC -> ClauseNames.ASC
@@ -81,15 +82,16 @@ type Clause =
         | ON_MATCH_SET -> ClauseNames.ON_MATCH_SET
         | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
         | ORDER_BY -> ClauseNames.ORDER_BY
+        | REMOVE -> ClauseNames.REMOVE
         | RETURN -> ClauseNames.RETURN
         | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
         | SET -> ClauseNames.SET
         | SKIP -> ClauseNames.SKIP
         | UNION -> ClauseNames.UNION
         | UNION_ALL ->ClauseNames.UNION_ALL
+        | UNWIND ->ClauseNames.UNWIND
         | WHERE -> ClauseNames.WHERE
         | WITH -> ClauseNames.WITH
-        | REMOVE -> ClauseNames.REMOVE
         |> fun s -> s.Replace("_", " ")
     member this.IsWrite =
         match this with
@@ -278,31 +280,86 @@ module AggregatingFunctions =
     
     let inline collect (x : 'T) = AS<'T list>()
 
-module private BasicClause =
-
-    let (|Count|_|)  (expr : Expr) =
+module private  Helpers =
+    
+    let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
-        | Call (None, mi, [ Var v ]) when mi.Name = "count" ->
-            let f (stmBuilder : StatementBuilder) =
-                stmBuilder.AddStatement "count("
-                stmBuilder.AddStatement v.Name
-                stmBuilder.AddStatement ")"
-            Some f
+        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
+        | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
+        | Value (obj, _) -> obj
+        | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+        | SpecificCall <@@ List.map @@> (_, _, _)
+        | SpecificCall <@@ Array.map @@> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
+        | PropertyGet (Some (Var var), pi, []) ->
+            let expr = varDic.[var.Name]
+            let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+            // Need to catch case when there is a let binding to create an object,
+            // followed by a call to a property on that object. Need to handle the params
+            // order much like in record creation code
+            let rec inner expr =
+                match expr with
+                | Let (_, _, expr) -> inner expr
+                | NewRecord (_, _) -> pi.GetValue varObj
+                | _ ->
+                    // In this case the obj is actually Node<'N> or Rel<'R>
+                    // so will need to create an instance of it and call the static member
+                    if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj
+                    then
+                        Deserialization.createNullRecordOrClass var.Type
+                        |> pi.GetValue
+                    else varObj
+
+            inner expr
+
+        | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
+
+    let (|GetRange|_|) (varDic : VarDic) (expr : Expr) =
+        match expr with
+        | SpecificCall <@@ (..) @@> (None, _, [ expr1; expr2 ]) ->
+            let startValue = extractObject varDic expr1 :?> uint32
+            let endValue = extractObject varDic expr2 :?> uint32
+            Some (startValue, endValue)
+        | _ -> None
+
+    let (|IsCreateSeq|_|) (expr : Expr) =
+        match expr with
+        | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ])
+            when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
         | _ -> None
 
     let (|AS|_|) (expr : Expr) =
 
+        let (|Functions|_|) name (expr : Expr) =
+            match expr with
+            | Call (None, mi, [ Var v ]) when mi.Name = name ->
+                let f (stmBuilder : StatementBuilder) =
+                    stmBuilder.AddStatement name
+                    stmBuilder.AddStatement "("
+                    stmBuilder.AddStatement v.Name
+                    stmBuilder.AddStatement ")"
+                Some f
+            | _ -> None
+
         let functionMatcher (expr : Expr) =
             match expr with
-            | Count fStatement -> fStatement
+            | Functions "count" fStatement -> fStatement
+            | Functions "collect" fStatement -> fStatement
             | _ -> invalidOp (sprintf "AS, unmatched function: %A" expr)
 
         match expr with
         | Call (Some expr, mi, [ Var v ]) 
             when mi.Name = "AS"
             && mi.DeclaringType.IsGenericType
-            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> -> Some (v, functionMatcher expr)
+            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> -> 
+                let fStatement stmBuilder =
+                    functionMatcher expr stmBuilder
+                    stmBuilder.AddStatement " AS "
+                    stmBuilder.AddStatement v.Name
+
+                Some (v, fStatement)
         | _ -> None
+
+module private BasicClause =
 
     let make (stepState : StepBuilder) clause (expr : Expr) =
 
@@ -341,7 +398,28 @@ module private BasicClause =
         inner expr
         stepState.Add stmBuilder.Build
 
+module private UnwindClause =
+    
+    open Helpers
+
+    let make (stepState : StepBuilder) clause (expr : Expr) =
+
+        let stmBuilder = StatementBuilder(clause, stepState)
+
+        let rec inner expr =
+            match expr with
+            | Let (_, _, expr) -> inner expr
+            | TupleGet (expr, _) -> inner expr
+            | Lambda (_, expr) -> inner expr
+            | AS (_, fStatement) -> fStatement stmBuilder
+            | _ -> sprintf "UNWIND CLAUSE: Unrecognized expression: %A" expr |> invalidOp
+
+        inner expr
+        stepState.Add stmBuilder.Build
+
 module private MatchClause =
+
+    open Helpers
 
     let make (stepState : StepBuilder) (clause : Clause) (varDic : VarDic) expr =
 
@@ -357,37 +435,6 @@ module private MatchClause =
         let typeofRelLabel = typeof<RelLabel>
         let typeofUInt32 = typeof<uint32>
         let typeofUInt32List = typeof<uint32 list>
-
-        let extractObject (expr : Expr) =
-            match expr with
-            | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
-            | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
-            | Value (obj, _) -> obj
-            | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-            | SpecificCall <@@ List.map @@> (_, _, _)
-            | SpecificCall <@@ Array.map @@> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
-            | PropertyGet (Some (Var var), pi, []) ->
-                let expr = varDic.[var.Name]
-                let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-                // Need to catch case when there is a let binding to create an object,
-                // followed by a call to a property on that object. Need to handle the params
-                // order much like in record creation code
-                let rec inner expr =
-                    match expr with
-                    | Let (_, _, expr) -> inner expr
-                    | NewRecord (_, _) -> pi.GetValue varObj
-                    | _ ->
-                        // In this case the obj is actually Node<'N> or Rel<'R>
-                        // so will need to create an instance of it and call the static member
-                        if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj
-                        then
-                            Deserialization.createNullRecordOrClass var.Type
-                            |> pi.GetValue
-                        else varObj
-
-                inner expr
-
-            | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
 
         let makeIFS (expr : Expr) =
 
@@ -445,21 +492,6 @@ module private MatchClause =
                 if endValue = UInt32.MaxValue then sprintf "*%i.." startValue
                 else sprintf "*%i..%i" startValue endValue
 
-            let (|GetRange|_|) (expr : Expr) =
-                match expr with
-                | SpecificCall <@@ (..) @@> (None, _, [ expr1; expr2 ]) ->
-                    let startValue = extractObject expr1 :?> uint32
-                    let endValue = extractObject expr2 :?> uint32
-                    Some (makeStatement startValue endValue)
-
-                | _ -> None
-
-            let (|IsCreateSeq|_|) (expr : Expr) =
-                match expr with
-                | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ])
-                    when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
-                | _ -> None
-
             let makeListRng xs = List.min xs, List.max xs
 
             let makeListFromExpr (expr : Expr) =
@@ -474,7 +506,7 @@ module private MatchClause =
                 match expr with
                 | Var var when var.Type = typeofUInt32 -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
                 | Value (o, t) when t =typeofUInt32 -> Some o
-                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject expr |> Some
+                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject varDic expr |> Some
                 | _ -> None
 
             let (|IntList|_|) (expr : Expr) =
@@ -482,7 +514,7 @@ module private MatchClause =
                 | Var var when var.Type = typeofUInt32List -> makeListFromExpr varDic.[var.Name] |> Some
                 | Value (_, t) when t = typeofUInt32List -> makeListFromExpr expr |> Some
                 | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32List ->
-                    extractObject expr
+                    extractObject varDic expr
                     :?> uint32 list
                     |> makeListRng
                     ||> makeStatement
@@ -498,8 +530,8 @@ module private MatchClause =
             | UInt32 i -> singleInt i
             | SingleInt o -> o :?> uint32 |> singleInt
             | IntList s -> s
-            | ListCons statement
-            | IsCreateSeq (GetRange statement) -> statement
+            | ListCons statement -> statement
+            | IsCreateSeq (GetRange varDic (startV , endV)) -> makeStatement startV endV
             | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
             |> stmBuilder.AddStatement
 
@@ -527,7 +559,7 @@ module private MatchClause =
             let rec inner (expr : Expr) =
                 match expr with
                 | SpecificCall <@@ (/) @@> (_, _, xs) -> List.sumBy inner xs
-                | _ -> extractObject expr :?> RelLabel
+                | _ -> extractObject varDic expr :?> RelLabel
 
             inner expr
             |> string
@@ -562,11 +594,11 @@ module private MatchClause =
         let makeNodeLabelList (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> extractObject expr :?> NodeLabel list
+            | _ -> extractObject varDic expr :?> NodeLabel list
             |> List.iter (string >> stmBuilder.AddStatement)
 
         let makeNodeLabel expr =
-            extractObject expr
+            extractObject varDic expr
             :?> NodeLabel
             |> string
             |> stmBuilder.AddStatement
@@ -723,6 +755,8 @@ module private WhereSetClause =
 
 module private ReturnClause =
 
+    open Helpers
+
     let make<'T> (stepState : StepBuilder) clause (expr : Expr) =
 
         let stmBuilder = StatementBuilder(clause, stepState)
@@ -742,10 +776,8 @@ module private ReturnClause =
                 | PropertyGet (None, pi, _) ->
                     stmBuilder.AddStatement pi.Name
                     None
-                | BasicClause.AS (v, fStatement) ->
+                | AS (_, fStatement) -> 
                     fStatement stmBuilder
-                    stmBuilder.AddStatement " AS "
-                    stmBuilder.AddStatement v.Name
                     None
                 | _ ->
                     exp
@@ -759,7 +791,7 @@ module private ReturnClause =
                     | Var v -> v.Name, v.Type
                     | PropertyGet (Some (Var v), pi, _) -> v.Name + "." + pi.Name, pi.PropertyType
                     | PropertyGet (None, pi, []) -> pi.Name, pi.PropertyType
-                    | BasicClause.AS (v, _) -> v.Name, v.Type.GenericTypeArguments.[0]
+                    | AS (v, _) -> v.Name, v.Type.GenericTypeArguments.[0]
                     | _ ->
                         expr
                         |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
@@ -783,6 +815,7 @@ module private ReturnClause =
             | Value _
             | Var _
             | PropertyGet _ -> maker expr
+            | AS (_, _) -> maker expr
             | NewTuple exprs ->
                 let continuations =
                     exprs
@@ -911,6 +944,9 @@ module CypherBuilder =
         [<CustomOperation(ClauseNames.UNION_ALL, MaintainsVariableSpace = true)>]
         member _.UNION_ALL (source : Query<'T,'Result>) : Query<'T,'Result> = NA
 
+        [<CustomOperation(ClauseNames.UNWIND, MaintainsVariableSpace = true)>]
+        member _.UNWIND (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'AS list) : Query<'T,'Result> = NA
+
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
         member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = NA
         
@@ -978,6 +1014,13 @@ module CypherBuilder =
                     Some (fExpr state stepAbove)
                 | _ -> None
 
+            let (|Unwind|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+                match expr with
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                    let state = UnwindClause.make state clause thisStep
+                    Some (fExpr state stepAbove)
+                | _ -> None
+
             let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove ]) ->
@@ -1010,6 +1053,7 @@ module CypherBuilder =
                     | Basic <@@ this.SKIP @@> SKIP state inner stepList
                     | NoStatement <@@ this.UNION @@> UNION state inner stepList
                     | NoStatement <@@ this.UNION_ALL @@> UNION_ALL state inner stepList
+                    | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
                     | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
                     | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
                     | SpecificCall <@@ this.FOREACH @@> (_, _, x :: xs) ->

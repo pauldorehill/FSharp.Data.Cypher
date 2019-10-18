@@ -12,6 +12,9 @@
     <Compile Include="Return.fs" />
     <Compile Include="WhereSet.fs" />
     <Compile Include="Basic.fs" />
+    <Compile Include="As.fs" />
+    <Compile Include="ForEach.fs" />
+    <Compile Include="Unwind.fs" />
     <Compile Include="MovieGraph.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
