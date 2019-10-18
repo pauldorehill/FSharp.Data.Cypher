@@ -273,6 +273,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 [<NoComparison; NoEquality>]
 type AS<'T>() = 
     member _.AS (x : AS<'T>) = Unchecked.defaultof<'T>
+    member _.Value = Unchecked.defaultof<'T>
 
 module AggregatingFunctions =
     
@@ -336,6 +337,15 @@ module private  Helpers =
                     stmBuilder.AddStatement name
                     stmBuilder.AddStatement "("
                     stmBuilder.AddStatement v.Name
+                    stmBuilder.AddStatement ")"
+                Some f
+            | Call (None, mi, [ PropertyGet (Some (Var v), pi, []) ]) when mi.Name = name ->
+                let f (stmBuilder : StatementBuilder) =
+                    stmBuilder.AddStatement name
+                    stmBuilder.AddStatement "("
+                    stmBuilder.AddStatement v.Name
+                    stmBuilder.AddStatement "."
+                    stmBuilder.AddStatement pi.Name
                     stmBuilder.AddStatement ")"
                 Some f
             | _ -> None

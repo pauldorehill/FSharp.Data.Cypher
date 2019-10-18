@@ -9,7 +9,7 @@ module ``Can build`` =
 
     open FSharp.Data.Cypher.Test.MATCH.Node
 
-    let rtn = sprintf "RETURN %s(node) AS myVar"
+    let rtn = sprintf "RETURN %s(node%s) AS myVar"
 
     [<Fact>]
     let ``count`` () =
@@ -20,15 +20,24 @@ module ``Can build`` =
             RETURN (count(node) .AS myVar)
         }
         |> Cypher.rawQuery
-        |> fun q -> Assert.Equal(rtn "count", q)
+        |> fun q -> Assert.Equal(rtn "count" "", q)
     
     [<Fact>]
-    let ``collect`` () =
+    let ``collect nodes`` () =
         cypher {
             for node in Graph.NodeOfType do
             let myVar = AS<NodeType list>()
-            //MATCH (Node node)
             RETURN (collect(node) .AS myVar)
         }
         |> Cypher.rawQuery
-        |> fun q -> Assert.Equal(rtn "collect", q)
+        |> fun q -> Assert.Equal(rtn "collect" "", q)
+        
+    [<Fact>]
+    let ``collect node property`` () =
+        cypher {
+            for node in Graph.NodeOfType do
+            let myVar = AS<string list>()
+            RETURN (collect(node.StringValue) .AS myVar)
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal(rtn "collect" ".StringValue", q)
