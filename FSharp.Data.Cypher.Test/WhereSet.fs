@@ -129,3 +129,36 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("SET 42, 42, 42", q)
+
+namespace FSharp.Data.Cypher.Test.ON_CREATE_SET
+
+open System
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` =
+
+    [<Fact>]
+    let ``Basic statement`` () =
+        cypher {
+            ON_CREATE_SET 42
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("ON CREATE SET 42", q)
+
+namespace FSharp.Data.Cypher.Test.ON_MATCH_SET
+
+open System
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` =
+
+    [<Fact>]
+    let ``Basic statement`` () =
+        cypher {
+            ON_MATCH_SET 42
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal("ON MATCH SET 42", q)
+   
