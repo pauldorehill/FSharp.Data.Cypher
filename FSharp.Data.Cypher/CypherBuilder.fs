@@ -853,8 +853,6 @@ module CypherBuilder =
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
 
     // FOR EACH Supports the following commands : CREATE, MERGE, DELETE, FOREACH
-    // Tried as separate builder to avoid FOREACH (forEach {}) but the compiler doesnt like
-
     type ForEach () =    
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
@@ -883,13 +881,15 @@ module CypherBuilder =
 
         member _.Yield (source : 'T) : Query<'T,unit> = NA
         
+        member _.Zero () : Query<'T,'Result> = NA
+        
         member _.For (source : Node<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
         
         member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
         
-        member this.Run x : ForEach = ForEach()
+        member this.Run x : unit = ()
 
-    let forEach = ForEach()
+    let FOREACH = ForEach()
 
     type CypherBuilder () =
         
@@ -907,9 +907,6 @@ module CypherBuilder =
 
         [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
         member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = NA
-
-        [<CustomOperation(ClauseNames.FOREACH, MaintainsVariableSpace = true)>]
-        member _.FOREACH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> ForEach) : Query<'T,'Result> = NA
         
         [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
         member _.LIMIT (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = NA
@@ -965,9 +962,13 @@ module CypherBuilder =
 
         member _.Yield (source : 'T) : Query<'T,unit> = NA
         
-        member _.For (source : Node<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.Zero () : Query<'T,unit> = NA
         
-        member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Query<'T,'Result>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        
+        member _.For (source : Node<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        
+        member _.For (source : Rel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
 
         member _.Quote (query : Expr<Query<'T,'Result>>) = NA
         
@@ -1041,6 +1042,9 @@ module CypherBuilder =
             let buildQry (expr : Expr) =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
+                    | Sequential (Application (expr , _) , _) -> inner state expr
+                    | Lambda (var, expr) when var.Type = typeof<ForEach> -> 
+                        invalidOp "FOREACH is not ready"
                     | SpecificCall <@@ this.Yield @@> _ -> state
                     | Call (_, mi, exprs) when mi.Name = "For" -> state
                     | Let (_, _, expr)
@@ -1066,9 +1070,9 @@ module CypherBuilder =
                     | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
                     | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
                     | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
-                    | SpecificCall <@@ this.FOREACH @@> (_, _, x :: xs) ->
-                        sprintf "FOREACH is not ready: %s%A" Environment.NewLine xs
-                        |> invalidOp
+                    //| SpecificCall <@@ this.FOREACH @@> (_, _, x :: xs) ->
+                    //    sprintf "FOREACH is not ready: %s%A" Environment.NewLine xs
+                    //    |> invalidOp
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr

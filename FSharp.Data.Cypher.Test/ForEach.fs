@@ -12,8 +12,8 @@ module ``Can build`` =
     [<Fact>]
     let ``Basic statement`` () =
         cypher {
-            for node in Graph.NodeOfType do
-            FOREACH (ForEach())
+            //for node in Graph.NodeOfType do
+            FOREACH { () }
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("FOREACH ", q)
