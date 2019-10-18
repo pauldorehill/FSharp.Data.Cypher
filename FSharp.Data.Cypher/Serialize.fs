@@ -4,6 +4,7 @@ open System
 open System.Collections
 open System.Reflection
 open FSharp.Reflection
+open FSharp.Quotations
 open Neo4j.Driver
 
 module Deserialization =
@@ -138,9 +139,9 @@ module Deserialization =
 
         else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
 
-    let deserialize (typ : Type) (dic : Generic.IReadOnlyDictionary<string,obj>) =
+    let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, typ : Type)  =
 
-        let makeObj props nullMaker =
+        let makeObj (di : Generic.IReadOnlyDictionary<string,obj>) props nullMaker =
             let mutable typeInstance = None
                 
             let makeTypeInstance () = 
@@ -152,7 +153,7 @@ module Deserialization =
                 && pi.GetMethod.GetParameters() |> Array.isEmpty
                 
             let maker (pi : PropertyInfo) =
-                match dic.TryGetValue pi.Name with
+                match di.TryGetValue pi.Name with
                 | true, v -> fixTypes pi.Name pi.PropertyType v
                 | false, _ when isOption pi.PropertyType -> box None
                 | false, _ when isParameterlessProp pi ->
@@ -163,17 +164,29 @@ module Deserialization =
                     |> invalidOp
 
             Array.map maker props
-     
-        match typ with
-        | Record (props, nullMaker) -> 
-            let obs = makeObj props nullMaker
-            FSharpValue.MakeRecord(typ, obs, true)
-        | SingleCaseDU (props, nullMaker, ucs) ->
-            if props.Length = 0 then nullMaker() 
-            else 
-                let obs = makeObj props nullMaker
-                FSharpValue.MakeUnion(ucs, obs, true)
-        | PrmLessClassStruct (_, nullMaker) -> nullMaker() // No members to set
+
+        let complexType di =
+            match typ with
+            | Record (props, nullMaker) -> 
+                let obs = makeObj di props nullMaker
+                FSharpValue.MakeRecord(typ, obs, true)
+            | SingleCaseDU (props, nullMaker, ucs) ->
+                if props.Length = 0 then nullMaker() 
+                else 
+                    let obs = makeObj di props nullMaker
+                    FSharpValue.MakeUnion(ucs, obs, true)
+            | PrmLessClassStruct (_, nullMaker) -> nullMaker() // No members to set
+
+        match continuation.[key] with
+        | :? IEntity as v -> 
+            if isNull v 
+            then
+                sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" typ.Name
+                |> NullReferenceException
+                |> raise
+            else complexType v.Properties
+        | v -> fixTypes key typ v
+        |> fun v -> Expr.Value(v, typ)
 
     let createNullRecordOrClass typ =
         match typ with

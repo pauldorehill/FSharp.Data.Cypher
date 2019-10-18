@@ -272,8 +272,8 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
 [<NoComparison; NoEquality>]
 type AS<'T>() = 
-    member _.AS (x : AS<'T>) = Unchecked.defaultof<'T>
-    member _.Value = Unchecked.defaultof<'T>
+    member _.AS (x : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
+    member _.Value : 'T = invalidOp "AS.Value should never be called"
 
 module AggregatingFunctions =
     
@@ -772,51 +772,28 @@ module private ReturnClause =
         let stmBuilder = StatementBuilder(clause, stepState)
 
         let maker (expr : Expr) =
-            let customKey =
-                match expr with
-                | Value (o, _) -> Some (stmBuilder.AddObjRtnKey o)
-                | Var v ->
-                    stmBuilder.AddStatement v.Name
-                    None
-                | PropertyGet (Some (Var v), pi, _) ->
-                    stmBuilder.AddStatement v.Name
-                    stmBuilder.AddStatement "."
-                    stmBuilder.AddStatement pi.Name
-                    None
-                | PropertyGet (None, pi, _) ->
-                    stmBuilder.AddStatement pi.Name
-                    None
-                | AS (_, fStatement) -> 
-                    fStatement stmBuilder
-                    None
-                | _ ->
-                    exp
-                    |> sprintf "RETURN. Trying to extract statement but couldn't match expression: %A"
-                    |> invalidOp
-
-            fun (di : Generic.IReadOnlyDictionary<string, obj>) ->
-                let (key, typ) =
-                    match expr with
-                    | Value (_, typ) -> StatementBuilder.KeySymbol + customKey.Value, typ
-                    | Var v -> v.Name, v.Type
-                    | PropertyGet (Some (Var v), pi, _) -> v.Name + "." + pi.Name, pi.PropertyType
-                    | PropertyGet (None, pi, []) -> pi.Name, pi.PropertyType
-                    | AS (v, _) -> v.Name, v.Type.GenericTypeArguments.[0]
-                    | _ ->
-                        expr
-                        |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
-                        |> invalidOp
-
-                match di.[key] with
-                | :? IEntity as v -> 
-                    if isNull v 
-                    then
-                        sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" typ.Name
-                        |> NullReferenceException
-                        |> raise
-                    else Deserialization.deserialize typ v.Properties
-                | v -> Deserialization.fixTypes key typ v
-                |> fun v -> Expr.Value(v, typ)
+            match expr with
+            | Value (o, typ) -> 
+                let key = StatementBuilder.KeySymbol + stmBuilder.AddObjRtnKey o
+                key, typ
+            | Var v -> 
+                stmBuilder.AddStatement v.Name
+                v.Name, v.Type
+            | PropertyGet (Some (Var v), pi, _) -> 
+                stmBuilder.AddStatement v.Name
+                stmBuilder.AddStatement "."
+                stmBuilder.AddStatement pi.Name
+                v.Name + "." + pi.Name, pi.PropertyType
+            | PropertyGet (None, pi, []) -> 
+                stmBuilder.AddStatement pi.Name
+                pi.Name, pi.PropertyType
+            | AS (v, fStatement) -> 
+                fStatement stmBuilder
+                v.Name, v.Type.GenericTypeArguments.[0]
+            | _ ->
+                expr
+                |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
+                |> invalidOp
 
         let rec inner (expr : Expr) =
             match expr with
@@ -824,24 +801,28 @@ module private ReturnClause =
             | Lambda (_, expr) -> inner expr
             | Value _
             | Var _
-            | PropertyGet _ -> maker expr
-            | AS (_, _) -> maker expr
+            | PropertyGet _ -> maker expr |> Choice1Of2
+            | AS (_, _) -> maker expr |> Choice1Of2
             | NewTuple exprs ->
-                let continuations =
-                    exprs
-                    |> List.mapi (fun i expr ->
-                        if i <> 0 then stmBuilder.AddStatement ", "
-                        maker expr)
-
-                fun di ->
-                    continuations
-                    |> List.map (fun f -> f di)
-                    |> Expr.NewTuple
+                exprs
+                |> List.mapi (fun i expr ->
+                    if i <> 0 then stmBuilder.AddStatement ", "
+                    maker expr)
+                |> Choice2Of2
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
 
-        let cont = inner expr // Must run, otherwise never builds RETURN
-        let result di = cont di |> Expr.Cast<'T> |> QuotationEvaluator.Evaluate 
-        stepState.Add stmBuilder.Build, result
+        let result = inner expr // Must run, otherwise never builds RETURN
+        let continuation (di : Generic.IReadOnlyDictionary<string,obj>) = 
+            match result with
+            | Choice1Of2 keyTyp -> Deserialization.deserialize di keyTyp
+            | Choice2Of2 keyTyps ->
+                keyTyps
+                |> List.map (Deserialization.deserialize di)
+                |> Expr.NewTuple
+            |> Expr.Cast<'T> 
+            |> QuotationEvaluator.Evaluate
+
+        stepState.Add stmBuilder.Build, continuation
 
 [<AutoOpen>]
 module CypherBuilder =
@@ -1043,8 +1024,7 @@ module CypherBuilder =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
                     | Sequential (Application (expr , _) , _) -> inner state expr
-                    | Lambda (var, expr) when var.Type = typeof<ForEach> -> 
-                        invalidOp "FOREACH is not ready"
+                    | Lambda (var, expr) when var.Type = typeof<ForEach> -> invalidOp "FOREACH is not ready"
                     | SpecificCall <@@ this.Yield @@> _ -> state
                     | Call (_, mi, exprs) when mi.Name = "For" -> state
                     | Let (_, _, expr)
@@ -1070,9 +1050,6 @@ module CypherBuilder =
                     | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
                     | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
                     | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
-                    //| SpecificCall <@@ this.FOREACH @@> (_, _, x :: xs) ->
-                    //    sprintf "FOREACH is not ready: %s%A" Environment.NewLine xs
-                    //    |> invalidOp
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr
