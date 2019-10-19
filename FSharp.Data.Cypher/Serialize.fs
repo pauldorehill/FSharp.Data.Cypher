@@ -263,8 +263,21 @@ module Serialization =
             match coreTypes (pi.GetValue o) with
             | Some o -> Some (pi.Name, o)
             | None -> None)
-        |> Map.ofArray
-        |> Generic.Dictionary
+        |> function
+        | [||] -> None
+        | xs ->
+            Map.ofArray xs
+            |> Generic.Dictionary
+            |> box
+            |> Some
+
+    let serialize (o : obj) =
+        //if isNull o then None
+        //else 
+        match o.GetType() with
+        | v when Deserialization.isIFSNode v -> complexTypes o
+        | v when Deserialization.isIFSRel v -> complexTypes o
+        | _ -> coreTypes o
 
     //let makeIEntity (fsNode : #IFSEntity) = 
     //    { new IEntity with 

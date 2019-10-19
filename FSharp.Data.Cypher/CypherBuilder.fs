@@ -209,7 +209,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         | :? unit -> "null"
         | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // TODO: See https://neo4j.com/docs/cypher-manual/3.5/syntax/expressions/ fro full list
         | :? bool as b -> b.ToString().ToLower()
-        | :? Generic.List<obj> as xs ->
+        | :? ResizeArray<obj> as xs ->
             xs
             |> Seq.map string
             |> String.concat ", "
@@ -241,14 +241,9 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         prms <- (key, o) :: prms
         key
 
-    member this.AddCoreType (o : obj) =
-        Serialization.coreTypes o
-        |> this.Add
-        |> ignore
+    member this.AddCoreTypeRtnKey (o : obj) = Serialization.coreTypes o |> this.Add
 
-    member this.AddCoreTypeRtnKey (o : obj) =
-        Serialization.coreTypes o
-        |> this.Add
+    member this.AddCoreType (o : obj) = this.AddCoreTypeRtnKey o |> ignore
 
     member this.AddCoreType expr =
         QuotationEvaluator.EvaluateUntyped expr
