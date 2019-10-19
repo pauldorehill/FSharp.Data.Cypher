@@ -20,31 +20,31 @@ type Person =
     
 type ActedIn =
     { roles : string [] }
-    interface IFSRelationship<ActedIn>
+    interface IFSRel<ActedIn>
     member _.Label = RelLabel "ACTED_IN"
     
 type Directed = 
     private | NA
-    interface IFSRelationship<Directed>
+    interface IFSRel<Directed>
     member _.Label = RelLabel "DIRECTED"
     
 type Follows = 
     | NA
-    interface IFSRelationship<Follows>
+    interface IFSRel<Follows>
     member _.Label = RelLabel "FOLLOWS"
     
 type Produced() = 
-    interface IFSRelationship<Produced>
+    interface IFSRel<Produced>
     member _.Label = RelLabel "PRODUCED"
     
 type Reviewed = 
     { summary : string
       rating : int }
-    interface IFSRelationship<Reviewed>
+    interface IFSRel<Reviewed>
     member _.Label = RelLabel "REVIEWED"
     
 type Wrote() = 
-    interface IFSRelationship<Wrote>
+    interface IFSRel<Wrote>
     member _.Label = RelLabel "WROTE"
     
 type Graph =

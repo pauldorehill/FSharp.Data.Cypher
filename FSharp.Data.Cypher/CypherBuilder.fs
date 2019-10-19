@@ -241,24 +241,24 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         prms <- (key, o) :: prms
         key
 
-    member this.AddObj (o : obj) =
-        Serialization.fixTypes o
+    member this.AddCoreType (o : obj) =
+        Serialization.coreTypes o
         |> this.Add
         |> ignore
 
-    member this.AddObjRtnKey (o : obj) =
-        Serialization.fixTypes o
+    member this.AddCoreTypeRtnKey (o : obj) =
+        Serialization.coreTypes o
         |> this.Add
 
-    member this.AddPrimativeType expr =
+    member this.AddCoreType expr =
         QuotationEvaluator.EvaluateUntyped expr
-        |> Serialization.fixTypes
+        |> Serialization.coreTypes
         |> this.Add
         |> ignore
 
-    member this.AddSerializedType expr =
+    member this.AddComplexType expr =
         QuotationEvaluator.EvaluateUntyped expr
-        |> Serialization.serialize
+        |> Serialization.complexTypes
         |> box
         |> Some
         |> this.Add
@@ -377,7 +377,7 @@ module private BasicClause =
 
         let extractStatement (exp : Expr) =
             match exp with
-            | Value (o, _) -> stmBuilder.AddObj o
+            | Value (o, _) -> stmBuilder.AddCoreType o
             | Var v -> stmBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) ->
                 stmBuilder.AddStatement v.Name
@@ -439,7 +439,7 @@ module private MatchClause =
         let typedefofNode = typedefof<Node<_>>
         let typedefofRel = typedefof<Rel<_>>
         let typedefofIFSNode = typedefof<IFSNode<_>>
-        let typedefofIFSRelationship = typedefof<IFSRelationship<_>>
+        let typedefofIFSRelationship = typedefof<IFSRel<_>>
         let typeofNodeLabel = typeof<NodeLabel>
         let typeofNodeLabelList = typeof<NodeLabel list>
         let typeofRelLabel = typeof<RelLabel>
@@ -472,10 +472,10 @@ module private MatchClause =
                     match fieldValues.[i] with
                     | Choice1Of3 expr ->
                         name ()
-                        stmBuilder.AddPrimativeType expr
+                        stmBuilder.AddCoreType expr
                     | Choice2Of3 o ->
                         name ()
-                        stmBuilder.AddObj o
+                        stmBuilder.AddCoreType o
                     | Choice3Of3 _ -> ()
 
                 stmBuilder.AddStatement "{"
@@ -693,14 +693,7 @@ module private MatchClause =
         stepState.Add stmBuilder.Build
 
 module private WhereSetClause =
-
-    let [<Literal>] IFSNode = "IFSNode"
-    let [<Literal>] IFSRelationship = "IFSRelationship"
-
-    let hasInterface (typ : Type) (name : string) = typ.GetInterface name |> isNull |> not
-
-    let isIFS (typ : Type) = hasInterface typ IFSNode || hasInterface typ IFSRelationship
-
+    // TODO : full setting of node / rel
     let make (stepState : StepBuilder) clause (expr : Expr) =
 
         let stmBuilder = StatementBuilder(clause, stepState)
@@ -736,13 +729,14 @@ module private WhereSetClause =
                     if i <> 0 then stmBuilder.AddStatement ", "
                     inner expr)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
-            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddPrimativeType expr
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddPrimativeType expr
-            | NewArray (_, _) -> stmBuilder.AddPrimativeType expr
+            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddCoreType expr
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddCoreType expr
+            | NewArray (_, _) -> stmBuilder.AddCoreType expr
             | Value (_, typ) ->
-                if isIFS typ
-                then stmBuilder.AddSerializedType expr
-                else stmBuilder.AddPrimativeType expr
+                //if Deserialization.isIFS typ
+                //then stmBuilder.AddSerializedType expr
+                //else stmBuilder.AddPrimativeType expr
+                stmBuilder.AddCoreType expr
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) ->
                 inner e
                 stmBuilder.AddStatement "."
@@ -752,9 +746,10 @@ module private WhereSetClause =
                 stmBuilder.AddStatement "."
                 stmBuilder.AddStatement pi.Name
             | PropertyGet (None, pi, _) ->
-                if isIFS pi.PropertyType
-                then stmBuilder.AddSerializedType expr
-                else stmBuilder.AddPrimativeType expr
+                //if Deserialization.isIFS pi.PropertyType
+                //then stmBuilder.AddSerializedType expr
+                //else stmBuilder.AddPrimativeType expr
+                stmBuilder.AddCoreType expr
             | Var v -> stmBuilder.AddStatement v.Name
             | _ ->
                 sprintf "Un matched in WHERE/SET statement: %A" expr
@@ -774,7 +769,7 @@ module private ReturnClause =
         let maker (expr : Expr) =
             match expr with
             | Value (o, typ) -> 
-                let key = StatementBuilder.KeySymbol + stmBuilder.AddObjRtnKey o
+                let key = StatementBuilder.KeySymbol + stmBuilder.AddCoreTypeRtnKey o
                 key, typ
             | Var v -> 
                 stmBuilder.AddStatement v.Name
@@ -801,7 +796,7 @@ module private ReturnClause =
             | Lambda (_, expr) -> inner expr
             | Value _
             | Var _
-            | PropertyGet _ -> maker expr |> Choice1Of2
+            | PropertyGet _
             | AS (_, _) -> maker expr |> Choice1Of2
             | NewTuple exprs ->
                 exprs

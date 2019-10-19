@@ -390,7 +390,7 @@ module Node =
 
 module Relationship =
     
-    let rel = { new IFSRelationship<'R> }
+    let rel = { new IFSRel<'R> }
 
     let label = "REL_LABEL"
 
@@ -398,14 +398,14 @@ module Relationship =
 
     type RelType =
         { Value : string }
-        interface IFSRelationship<RelType>
+        interface IFSRel<RelType>
         member _.Label = RelLabel label
         static member StaticLabel = RelLabel label
         member _.IntLabel = 3u
         static member IntLabelList = [ 0u .. 3u ]
 
     type Graph =
-        static member Rel = Rel<IFSRelationship<_>>()
+        static member Rel = Rel<IFSRel<_>>()
         static member RelOfType = Rel<RelType>()
 
     module ``Empty Constructor`` =
@@ -437,7 +437,7 @@ module Relationship =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (rel : IFSRelationship<'R>) =
+                let f (rel : IFSRel<'R>) =
                     cypher {
                         MATCH (Node() -- Rel rel -- Node())
                     }
@@ -590,7 +590,7 @@ module Relationship =
 
             [<Fact>]
             let ``Variable passed as function parameter`` () =
-                let f (rel : IFSRelationship<'R>) (relLabel : RelLabel) =
+                let f (rel : IFSRel<'R>) (relLabel : RelLabel) =
                     cypher {
                         MATCH (Node() -- Rel(rel, relLabel) -- Node())
                     }

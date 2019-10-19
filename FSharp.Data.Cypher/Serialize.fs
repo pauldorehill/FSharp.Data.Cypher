@@ -7,93 +7,27 @@ open FSharp.Reflection
 open FSharp.Quotations
 open Neo4j.Driver
 
+type Deserilizer = Generic.IReadOnlyDictionary<string,obj> -> string * Type -> Expr
+
+module TypeHelpers =
+    ()
+
 module Deserialization =
     
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
-    // Driver returns a System.Collections.Generic.List`1[System.Object]
-    let checkCollection<'T> (rtnObj : obj) =
-        if isNull rtnObj then Seq.empty
-        elif rtnObj.GetType() = typeof<Generic.List<obj>> then
-            rtnObj 
-            :?> Generic.List<obj>
-            |> Seq.cast<'T>
-        else 
-            rtnObj :?> 'T |> Seq.singleton 
+    let hasInterface (interfaceTyp : Type) (typ : Type) = 
+        typ.GetInterfaces()
+        |> Array.exists (fun typ ->
+            if typ.IsGenericType 
+            then typ.GetGenericTypeDefinition() = interfaceTyp  
+            else typ = interfaceTyp)
 
-    let makeSeq<'T> rtnObj = checkCollection<'T> rtnObj
+    let isIFSNode (typ : Type) = hasInterface typedefof<IFSNode<_>> typ
+    
+    let isIFSRel (typ : Type) = hasInterface typedefof<IFSRel<_>> typ
 
-    let makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq
-
-    let makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq
-
-    let makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq
-
-    let makeOption<'T> (obj : obj) = 
-        if isNull obj then box None 
-        else obj :?> 'T |> Some |> box
-
-    let fixTypes (name : string) (localType : Type) (rtnObj : obj) =
-
-        let nullCheck (obj : obj) = 
-            if isNull obj then
-                sprintf "A null object was returned for %s on type %A" name localType.Name
-                |> ArgumentNullException
-                |> raise
-            else obj
-
-        if localType = typeof<string> then nullCheck rtnObj
-        elif localType = typeof<int64> then nullCheck rtnObj
-        elif localType = typeof<int32> then nullCheck rtnObj |> Convert.ToInt32 |> box
-        elif localType = typeof<float> then nullCheck rtnObj
-        elif localType = typeof<bool> then nullCheck rtnObj
-        
-        elif localType = typeof<string option> then makeOption<string> rtnObj
-        elif localType = typeof<int64 option> then makeOption<int64> rtnObj
-        elif localType = typeof<int32 option> then rtnObj |> Convert.ToInt32 |> makeOption<int32>
-        elif localType = typeof<float option> then makeOption<float> rtnObj
-        elif localType = typeof<bool option> then makeOption<bool> rtnObj
-
-        elif localType = typeof<string seq> then makeSeq<string> rtnObj |> box
-        elif localType = typeof<int64 seq> then makeSeq<int64> rtnObj |> box
-        elif localType = typeof<int32 seq> then makeSeq<int64> rtnObj |> Seq.map Convert.ToInt32 |> box
-        elif localType = typeof<float seq> then makeSeq<float> rtnObj |> box
-        elif localType = typeof<bool seq> then makeSeq<bool> rtnObj |> box
-            
-        elif localType = typeof<string []> then makeArray<string> rtnObj |> box
-        elif localType = typeof<int64 []> then makeArray<int64> rtnObj |> box
-        elif localType = typeof<int32 []> then makeArray<int64> rtnObj |> Array.map Convert.ToInt32 |> box
-        elif localType = typeof<float []> then makeArray<float> rtnObj |> box
-        elif localType = typeof<bool []> then makeArray<bool> rtnObj |> box
-            
-        elif localType = typeof<string list> then makeList<string> rtnObj |> box
-        elif localType = typeof<int64 list> then makeList<int64> rtnObj |> box
-        elif localType = typeof<int32 list> then makeList<int64> rtnObj |> List.map Convert.ToInt32 |> box
-        elif localType = typeof<float list> then makeList<float> rtnObj |> box
-        elif localType = typeof<bool list> then makeList<bool> rtnObj |> box
-            
-        elif localType = typeof<string Set> then makeSet<string> rtnObj |> box
-        elif localType = typeof<int64 Set> then makeSet<int64> rtnObj |> box
-        elif localType = typeof<int32 Set> then makeSet<int64> rtnObj |> Set.map Convert.ToInt32 |> box
-        elif localType = typeof<float Set> then makeSet<float> rtnObj |> box
-        elif localType = typeof<bool Set> then makeSet<bool> rtnObj |> box
-        // Here for when RETURN () -> that becomes RETURN null
-        elif localType = typeof<unit> then box ()
-
-        else 
-            localType
-            |> sprintf "Unsupported property/value: %s. Type: %A" name
-            |> invalidOp
-
-
-    // TODO: Class serialization is tricky due to the order that the values have to be passed
-    // into the constructor doesn't match the decleration order on the class
-    // also if there is a const member this.V = "Value" that is impossible to filter out with BindingFlags
-    // will need to revisit how handle classes - currently just parameterless for now to allow
-    // for relationships with no properties
-    // Look into FSharpValue.PreComputeRecordConstructor - is it faster?
-    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
-    // Or use of quotations as an equvialent
+    let isIFS (typ : Type) = isIFSNode typ || isIFSRel typ
 
     let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
 
@@ -112,7 +46,7 @@ module Deserialization =
                 true
             else false
 
-        if FSharpType.IsRecord typ then
+        if FSharpType.IsRecord(typ, bindingFlags) then
             let props = FSharpType.GetRecordFields typ
             let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
             Record (props, nullMaker)
@@ -138,55 +72,121 @@ module Deserialization =
                 | None -> invalidOp "Only Classes/Structs with a parameterless constructor are supported"
 
         else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
+    
+    // Driver returns a System.Collections.Generic.List`1[System.Object]
+    let private checkCollection<'T> (rtnObj : obj) =
+        if isNull rtnObj then Seq.empty
+        elif rtnObj.GetType() = typeof<ResizeArray<obj>> then
+            rtnObj :?> ResizeArray<obj> |> Seq.cast<'T>
+        else 
+            rtnObj :?> 'T |> Seq.singleton 
 
-    let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, typ : Type)  =
+    let private makeSeq<'T> rtnObj = checkCollection<'T> rtnObj
 
-        let makeObj (di : Generic.IReadOnlyDictionary<string,obj>) props nullMaker =
+    let private makeArray<'T> rtnObj = checkCollection<'T> rtnObj |> Array.ofSeq
+
+    let private makeList<'T> rtnObj = checkCollection<'T> rtnObj |> List.ofSeq
+
+    let private makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq
+
+    let private makeOption<'T> (obj : obj) = 
+        if isNull obj then box None 
+        else obj :?> 'T |> Some |> box
+
+    let coreTypes (rtnType : Type) (name : string) (rtnObj : obj) =
+
+        let nullCheck (obj : obj) = 
+            if isNull obj then
+                sprintf "A null object was returned for %s on type %A" name rtnType.Name
+                |> ArgumentNullException
+                |> raise
+            else obj
+
+        match rtnType with
+        | v when v = typeof<string> -> nullCheck rtnObj
+        | v when v = typeof<int64> -> nullCheck rtnObj
+        | v when v = typeof<int32> -> nullCheck rtnObj |> Convert.ToInt32 |> box
+        | v when v = typeof<float> -> nullCheck rtnObj
+        | v when v = typeof<bool> -> nullCheck rtnObj
+        | v when v = typeof<string option> -> makeOption<string> rtnObj
+        | v when v = typeof<int64 option> -> makeOption<int64> rtnObj
+        | v when v = typeof<int32 option> -> rtnObj |> Convert.ToInt32 |> makeOption<int32>
+        | v when v = typeof<float option> -> makeOption<float> rtnObj
+        | v when v = typeof<bool option> -> makeOption<bool> rtnObj
+        | v when v = typeof<string seq> -> makeSeq<string> rtnObj |> box
+        | v when v = typeof<int64 seq> -> makeSeq<int64> rtnObj |> box
+        | v when v = typeof<int32 seq> -> makeSeq<int64> rtnObj |> Seq.map Convert.ToInt32 |> box
+        | v when v = typeof<float seq> -> makeSeq<float> rtnObj |> box
+        | v when v = typeof<bool seq> -> makeSeq<bool> rtnObj |> box
+        | v when v = typeof<string []> -> makeArray<string> rtnObj |> box
+        | v when v = typeof<int64 []> -> makeArray<int64> rtnObj |> box
+        | v when v = typeof<int32 []> -> makeArray<int64> rtnObj |> Array.map Convert.ToInt32 |> box
+        | v when v = typeof<float []> -> makeArray<float> rtnObj |> box
+        | v when v = typeof<bool []> -> makeArray<bool> rtnObj |> box
+        | v when v = typeof<string list> -> makeList<string> rtnObj |> box
+        | v when v = typeof<int64 list> -> makeList<int64> rtnObj |> box
+        | v when v = typeof<int32 list> -> makeList<int64> rtnObj |> List.map Convert.ToInt32 |> box
+        | v when v = typeof<float list> -> makeList<float> rtnObj |> box
+        | v when v = typeof<bool list> -> makeList<bool> rtnObj |> box
+        | v when v = typeof<string Set> -> makeSet<string> rtnObj |> box
+        | v when v = typeof<int64 Set> -> makeSet<int64> rtnObj |> box
+        | v when v = typeof<int32 Set> -> makeSet<int64> rtnObj |> Set.map Convert.ToInt32 |> box
+        | v when v = typeof<float Set> -> makeSet<float> rtnObj |> box
+        | v when v = typeof<bool Set> -> makeSet<bool> rtnObj |> box
+        | v when v = typeof<unit> -> box ()
+        | _ ->  invalidOp(sprintf "Unsupported type of: %s" rtnType.Name)
+
+    let complexTypes (rtnType : Type) (iEntity : #IEntity) =
+
+        let makeObj props nullMaker =
             let mutable typeInstance = None
-                
+                    
             let makeTypeInstance () = 
                 typeInstance <- Some (nullMaker ())
-                
+                    
             // This is here for classes/structs -> need to guard against DU
             let isParameterlessProp (pi : PropertyInfo) = 
-                not (FSharpType.IsUnion(typ, bindingFlags)) // 
+                not (FSharpType.IsUnion(rtnType, bindingFlags))
                 && pi.GetMethod.GetParameters() |> Array.isEmpty
-                
+                    
             let maker (pi : PropertyInfo) =
-                match di.TryGetValue pi.Name with
-                | true, v -> fixTypes pi.Name pi.PropertyType v
+                match iEntity.Properties.TryGetValue pi.Name with
+                | true, rtnObj -> coreTypes pi.PropertyType pi.Name rtnObj
                 | false, _ when isOption pi.PropertyType -> box None
                 | false, _ when isParameterlessProp pi ->
                     if typeInstance.IsNone then makeTypeInstance ()
                     pi.GetValue typeInstance.Value // null check here?
                 | _ -> 
-                    sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" typ.Name pi.Name
+                    sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" rtnType.Name pi.Name
                     |> invalidOp
 
             Array.map maker props
+            
+        if isNull iEntity then
+            sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" rtnType.Name
+            |> NullReferenceException
+            |> raise
 
-        let complexType di =
-            match typ with
+        else 
+            match rtnType with
             | Record (props, nullMaker) -> 
-                let obs = makeObj di props nullMaker
-                FSharpValue.MakeRecord(typ, obs, true)
+                let obs = makeObj props nullMaker
+                FSharpValue.MakeRecord(rtnType, obs, true)
             | SingleCaseDU (props, nullMaker, ucs) ->
                 if props.Length = 0 then nullMaker() 
                 else 
-                    let obs = makeObj di props nullMaker
+                    let obs = makeObj props nullMaker
                     FSharpValue.MakeUnion(ucs, obs, true)
             | PrmLessClassStruct (_, nullMaker) -> nullMaker() // No members to set
 
-        match continuation.[key] with
-        | :? IEntity as v -> 
-            if isNull v 
-            then
-                sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" typ.Name
-                |> NullReferenceException
-                |> raise
-            else complexType v.Properties
-        | v -> fixTypes key typ v
-        |> fun v -> Expr.Value(v, typ)
+    // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
+    // Or use of quotations as an equvialent
+    let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, rtnType : Type) =
+        match rtnType with
+        | v when isIFSNode v -> continuation.[key] :?> INode |> complexTypes rtnType
+        | v when isIFSRel v -> continuation.[key] :?> IRelationship |> complexTypes rtnType
+        | _ -> coreTypes rtnType key continuation.[key]
+        |> fun rtnObj -> Expr.Value(rtnObj, rtnType)
 
     let createNullRecordOrClass typ =
         match typ with
@@ -207,69 +207,60 @@ module Serialization =
         | Some o -> Some (box o) 
         | None -> None
 
-    let checkCollection<'T> (rtnObj : obj) =
-        let xs = rtnObj :?> Generic.IEnumerable<'T>
+    let checkCollection<'T> (sndObj : obj) =
+        let xs = sndObj :?> Generic.IEnumerable<'T>
         if Seq.isEmpty xs then None
         else
             xs
             |> Seq.map box
-            |> Generic.List
+            |> ResizeArray
             |> box
             |> Some
 
     // TODO : 
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
-    let fixTypes (o : obj) =
+    let coreTypes (o : obj) =
         if isNull o then None
         else
-            let typ = o.GetType()
-            if typ = typeof<string> then Some o
-            elif typ = typeof<int64> then Some o
-            elif typ = typeof<int32> then Some o //:?> int32 |> int64 |> box
-            elif typ = typeof<float> then Some o
-            elif typ = typeof<bool> then Some o
+            match o.GetType() with
+            | sndType when sndType = typeof<string> -> Some o
+            | sndType when sndType = typeof<int64> -> Some o
+            | sndType when sndType = typeof<int32> -> Some o //:?> int32 |> int64 |> box
+            | sndType when sndType = typeof<float> -> Some o
+            | sndType when sndType = typeof<bool> -> Some o
+            | sndType when sndType = typeof<string option> -> makeOption<string> o
+            | sndType when sndType = typeof<int64 option> -> makeOption<int64> o
+            | sndType when sndType = typeof<int32 option> -> makeOption<int32> o
+            | sndType when sndType = typeof<float option> -> makeOption<float> o
+            | sndType when sndType = typeof<bool option> -> makeOption<bool> o
+            | sndType when sndType = typeof<string seq> -> checkCollection<string> o
+            | sndType when sndType = typeof<int64 seq> -> checkCollection<int64> o
+            | sndType when sndType = typeof<int32 seq> -> checkCollection<int32> o
+            | sndType when sndType = typeof<float seq> -> checkCollection<float> o
+            | sndType when sndType = typeof<bool seq> -> checkCollection<bool> o
+            | sndType when sndType = typeof<string []> -> checkCollection<string> o
+            | sndType when sndType = typeof<int64 []> -> checkCollection<int64> o
+            | sndType when sndType = typeof<int32 []> -> checkCollection<int32> o
+            | sndType when sndType = typeof<float []> -> checkCollection<float> o
+            | sndType when sndType = typeof<bool []> -> checkCollection<bool> o
+            | sndType when sndType = typeof<string list> -> checkCollection<string> o
+            | sndType when sndType = typeof<int64 list> -> checkCollection<int64> o
+            | sndType when sndType = typeof<int32 list> -> checkCollection<int32> o
+            | sndType when sndType = typeof<float list> -> checkCollection<float> o
+            | sndType when sndType = typeof<bool list> -> checkCollection<bool> o
+            | sndType when sndType = typeof<string Set> -> checkCollection<string> o
+            | sndType when sndType = typeof<int64 Set> -> checkCollection<int64> o
+            | sndType when sndType = typeof<int32 Set> -> checkCollection<int32> o
+            | sndType when sndType = typeof<float Set> -> checkCollection<float> o
+            | sndType when sndType = typeof<bool Set> -> checkCollection<bool> o
+            | sndType -> invalidOp (sprintf "Unsupported property/value: %s. Type: %A" sndType.Name sndType)
 
-            elif typ = typeof<string option> then makeOption<string> o
-            elif typ = typeof<int64 option> then makeOption<int64> o
-            elif typ = typeof<int32 option> then makeOption<int32> o
-            elif typ = typeof<float option> then makeOption<float> o
-            elif typ = typeof<bool option> then makeOption<bool> o
-
-            elif typ = typeof<string seq> then checkCollection<string> o
-            elif typ = typeof<int64 seq> then checkCollection<int64> o
-            elif typ = typeof<int32 seq> then checkCollection<int32> o
-            elif typ = typeof<float seq> then checkCollection<float> o
-            elif typ = typeof<bool seq> then checkCollection<bool> o
-            
-            elif typ = typeof<string []> then checkCollection<string> o
-            elif typ = typeof<int64 []> then checkCollection<int64> o
-            elif typ = typeof<int32 []> then checkCollection<int32> o
-            elif typ = typeof<float []> then checkCollection<float> o
-            elif typ = typeof<bool []> then checkCollection<bool> o
-            
-            elif typ = typeof<string list> then checkCollection<string> o
-            elif typ = typeof<int64 list> then checkCollection<int64> o
-            elif typ = typeof<int32 list> then checkCollection<int32> o
-            elif typ = typeof<float list> then checkCollection<float> o
-            elif typ = typeof<bool list> then checkCollection<bool> o
-            
-            elif typ = typeof<string Set> then checkCollection<string> o
-            elif typ = typeof<int64 Set> then checkCollection<int64> o
-            elif typ = typeof<int32 Set> then checkCollection<int32> o
-            elif typ = typeof<float Set> then checkCollection<float> o
-            elif typ = typeof<bool Set> then checkCollection<bool> o
-        
-            else
-                typ
-                |> sprintf "Unsupported property/value: %s. Type: %A" typ.Name
-                |> invalidOp
-
-    let serialize (o : obj) =
+    let complexTypes (o : obj) =
         o.GetType()
         |> Deserialization.getProperties
         |> Array.choose (fun pi -> 
-            match fixTypes (pi.GetValue o) with
+            match coreTypes (pi.GetValue o) with
             | Some o -> Some (pi.Name, o)
             | None -> None)
         |> Map.ofArray
@@ -281,24 +272,24 @@ module Serialization =
     //        member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
     //        member _.Properties = invalidOp "Fake Entity." }
     
-    let makeINode (fsNode : #IFSNode<_>) = 
-        { new INode with 
-            member _.Labels = invalidOp "Fake Node - no labels"
-        interface IEntity with
-            member _.Id = invalidOp "Fake Node - no id."
-            member this.get_Item (key : string) : obj = invalidOp "Fake Node"
-            member _.Properties = invalidOp "Fake Node"
-        interface IEquatable<INode> with
-            member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
+    //let makeINode (fsNode : #IFSNode<_>) = 
+    //    { new INode with 
+    //        member _.Labels = invalidOp "Fake Node - no labels"
+    //    interface IEntity with
+    //        member _.Id = invalidOp "Fake Node - no id."
+    //        member this.get_Item (key : string) : obj = invalidOp "Fake Node"
+    //        member _.Properties = invalidOp "Fake Node"
+    //    interface IEquatable<INode> with
+    //        member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
             
-    let makeIRelationship (fsRel : #IFSRelationship<_>) = 
-        { new IRelationship with 
-            member _.StartNodeId = invalidOp "Fake relationsip - no start node"
-            member _.EndNodeId = invalidOp "Fake relationsip - no end node"
-            member _.Type = invalidOp "Fake relationship - no type name"
-        interface IEntity with
-            member _.Id = invalidOp "Fake Node - no id."
-            member this.get_Item (key : string) : obj = this.Properties.Item key
-            member _.Properties = serialize fsRel :> Generic.IReadOnlyDictionary<string,obj>
-        interface IEquatable<IRelationship> with
-            member this.Equals(other : IRelationship) = this = (other :> IEquatable<IRelationship>) }
+    //let makeIRelationship (fsRel : #IFSRel<_>) = 
+    //    { new IRelationship with 
+    //        member _.StartNodeId = invalidOp "Fake relationsip - no start node"
+    //        member _.EndNodeId = invalidOp "Fake relationsip - no end node"
+    //        member _.Type = invalidOp "Fake relationship - no type name"
+    //    interface IEntity with
+    //        member _.Id = invalidOp "Fake Node - no id."
+    //        member this.get_Item (key : string) : obj = this.Properties.Item key
+    //        member _.Properties = serialize fsRel :> Generic.IReadOnlyDictionary<string,obj>
+    //    interface IEquatable<IRelationship> with
+    //        member this.Equals(other : IRelationship) = this = (other :> IEquatable<IRelationship>) }

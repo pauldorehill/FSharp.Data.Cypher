@@ -115,9 +115,9 @@ module Cypher =
     let run (driver : IDriver) cypher = runMap driver id cypher
 
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
-        cypher.Continuation
-        |> Option.map (fun continuation -> continuation di)
-        |> Option.defaultValue Unchecked.defaultof<'T>
+        match cypher.Continuation with
+        | Some continuation -> continuation di
+        | None -> invalidOp "No RETURN clause given when running spoof."
 
     let rawQuery (cypher : Cypher<'T>) = cypher.RawQuery
     

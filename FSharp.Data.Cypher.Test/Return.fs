@@ -1,5 +1,6 @@
 ﻿namespace FSharp.Data.Cypher.Test.RETURN
 
+open System
 open Neo4j.Driver
 open System.Collections
 open FSharp.Data.Cypher
@@ -179,13 +180,15 @@ module ``All allowed Types on a Record`` =
 
     let makeToReturnType xs =
         xs
-        |> Map.ofList
-        |> Generic.Dictionary
         |> fun xs ->
-            { new IEntity with 
-                member _.Id = invalidOp "Fake Entity."
-                member this.get_Item (key : string) : obj = this.Properties.Item key
-                member _.Properties = xs :> Generic.IReadOnlyDictionary<string,obj> }
+            { new INode with 
+                member _.Labels = invalidOp "Fake Node - no labels"
+            interface IEntity with
+                member _.Id = invalidOp "Fake Node - no id."
+                member this.get_Item (key : string) : obj = invalidOp "Fake Node"
+                member _.Properties = readOnlyDict xs
+            interface IEquatable<INode> with
+                member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
 
     let baseList =
         [ "string", box "EMU"

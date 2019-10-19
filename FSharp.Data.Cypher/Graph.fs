@@ -4,7 +4,7 @@
 type IFSNode<'N> = interface end
 
 /// Marker interface for a type that is a Relationship
-type IFSRelationship<'R> = interface end
+type IFSRel<'R> = interface end
 
 type private Label =
     static member Make (label : string) =
@@ -37,7 +37,7 @@ type RelLabel(label : string) =
 [<Sealed; NoComparison; NoEquality>]
 type Rel<'R>() =
     /// Match a Relationship and bind it to the variable name
-    new(relationship : IFSRelationship<'R>) = Rel<'R>()
+    new(relationship : IFSRel<'R>) = Rel<'R>()
 
     /// Match a Relationship with the label
     new(label : RelLabel) = Rel<'R>()
@@ -51,7 +51,7 @@ type Rel<'R>() =
 
     /// Match a Relationship with the label and bind it to the variable name. 
     /// The (/) operator can be used to specify multiple relationships
-    new(relationship : IFSRelationship<'R>, label : RelLabel) = Rel<'R>()
+    new(relationship : IFSRel<'R>, label : RelLabel) = Rel<'R>()
     
     /// Match a Relationship with the label and a path length 
     new(label : RelLabel, pathHops : uint32) = Rel<'R>()
@@ -63,7 +63,7 @@ type Rel<'R>() =
 
     /// Match a Relationship with the label and properties and bind it to the variable name. 
     /// The (/) operator can be used to specify multiple relationships
-    new(relationship : IFSRelationship<'R>, label : RelLabel, relationshipWithProperties : IFSRelationship<'R>) = Rel<'R>()
+    new(relationship : IFSRel<'R>, label : RelLabel, relationshipWithProperties : IFSRel<'R>) = Rel<'R>()
 
 type Rel =
     static member internal IsTypeDefOf (o : obj) =
