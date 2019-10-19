@@ -7,7 +7,6 @@ open FSharp.Quotations
 open FSharp.Quotations.Patterns
 open FSharp.Quotations.DerivedPatterns
 open FSharp.Quotations.ExprShape
-open Neo4j.Driver
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
@@ -93,6 +92,7 @@ type Clause =
         | WHERE -> ClauseNames.WHERE
         | WITH -> ClauseNames.WITH
         |> fun s -> s.Replace("_", " ")
+
     member this.IsWrite =
         match this with
         | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
@@ -217,7 +217,7 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
 
         | :? Generic.Dictionary<string, obj> as d ->
             d
-            |> Seq.map (fun kv -> kv.Key + ": " + fixStringParameter kv.Value)
+            |> Seq.map (function KeyValue (k, v) -> k + ": " + fixStringParameter v)
             |> String.concat ", "
             |> sprintf "{%s}"
         | _ -> string o
@@ -241,23 +241,11 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         prms <- (key, o) :: prms
         key
 
-    member this.AddCoreTypeRtnKey (o : obj) = Serialization.coreTypes o |> this.Add
+    member this.AddTypeRtnKey (o : obj) = Serialization.serialize o |> this.Add
 
-    member this.AddCoreType (o : obj) = this.AddCoreTypeRtnKey o |> ignore
+    member this.AddType (o : obj) = this.AddTypeRtnKey o |> ignore
 
-    member this.AddCoreType expr =
-        QuotationEvaluator.EvaluateUntyped expr
-        |> Serialization.coreTypes
-        |> this.Add
-        |> ignore
-
-    member this.AddComplexType expr =
-        QuotationEvaluator.EvaluateUntyped expr
-        |> Serialization.complexTypes
-        |> box
-        |> Some
-        |> this.Add
-        |> ignore
+    member this.AddType expr = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
 
     member _.AddStatement (stmt : string) =
         addNonParamterized stmt
@@ -301,7 +289,7 @@ module private  Helpers =
                     // so will need to create an instance of it and call the static member
                     if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj
                     then
-                        Deserialization.createNullRecordOrClass var.Type
+                        TypeHelpers.createNullRecordOrClass var.Type
                         |> pi.GetValue
                     else varObj
 
@@ -372,7 +360,7 @@ module private BasicClause =
 
         let extractStatement (exp : Expr) =
             match exp with
-            | Value (o, _) -> stmBuilder.AddCoreType o
+            | Value (o, _) -> stmBuilder.AddType o
             | Var v -> stmBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) ->
                 stmBuilder.AddStatement v.Name
@@ -449,7 +437,7 @@ module private MatchClause =
                     match expr with
                     | Var v -> Choice1Of3 varDic.[v.Name]
                     | PropertyGet (None, _, _) -> Choice1Of3 expr
-                    | NewUnionCase (ui, _) when Deserialization.isOption ui.DeclaringType -> Choice1Of3 expr
+                    | NewUnionCase (ui, _) when TypeHelpers.isOption ui.DeclaringType -> Choice1Of3 expr
                     | Value (o, _) -> Choice2Of3 o
                     | PropertyGet (Some _, _, _) -> Choice3Of3 ()
                     | _  -> invalidOp(sprintf "Unmatched Expr when getting field value: %A" expr)
@@ -467,14 +455,14 @@ module private MatchClause =
                     match fieldValues.[i] with
                     | Choice1Of3 expr ->
                         name ()
-                        stmBuilder.AddCoreType expr
+                        stmBuilder.AddType expr
                     | Choice2Of3 o ->
                         name ()
-                        stmBuilder.AddCoreType o
+                        stmBuilder.AddType o
                     | Choice3Of3 _ -> ()
 
                 stmBuilder.AddStatement "{"
-                Deserialization.getProperties typ |> Array.iteri build
+                TypeHelpers.getProperties typ |> Array.iteri build
                 stmBuilder.AddStatement "}"
 
             let rec inner (expr : Expr) =
@@ -724,14 +712,10 @@ module private WhereSetClause =
                     if i <> 0 then stmBuilder.AddStatement ", "
                     inner expr)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
-            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddCoreType expr
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddCoreType expr
-            | NewArray (_, _) -> stmBuilder.AddCoreType expr
-            | Value (_, typ) ->
-                //if Deserialization.isIFS typ
-                //then stmBuilder.AddSerializedType expr
-                //else stmBuilder.AddPrimativeType expr
-                stmBuilder.AddCoreType expr
+            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddType expr
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddType expr
+            | NewArray (_, _) -> stmBuilder.AddType expr
+            | Value (_, _) -> stmBuilder.AddType expr
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) ->
                 inner e
                 stmBuilder.AddStatement "."
@@ -740,15 +724,9 @@ module private WhereSetClause =
                 inner e
                 stmBuilder.AddStatement "."
                 stmBuilder.AddStatement pi.Name
-            | PropertyGet (None, pi, _) ->
-                //if Deserialization.isIFS pi.PropertyType
-                //then stmBuilder.AddSerializedType expr
-                //else stmBuilder.AddPrimativeType expr
-                stmBuilder.AddCoreType expr
+            | PropertyGet (None, _, _) -> stmBuilder.AddType expr
             | Var v -> stmBuilder.AddStatement v.Name
-            | _ ->
-                sprintf "Un matched in WHERE/SET statement: %A" expr
-                |> invalidOp
+            | _ -> invalidOp (sprintf "WHERE/SET statement - unmatched Expr: %A" expr)
 
         inner expr
         stepState.Add stmBuilder.Build
@@ -764,7 +742,7 @@ module private ReturnClause =
         let maker (expr : Expr) =
             match expr with
             | Value (o, typ) -> 
-                let key = StatementBuilder.KeySymbol + stmBuilder.AddCoreTypeRtnKey o
+                let key = StatementBuilder.KeySymbol + stmBuilder.AddTypeRtnKey o
                 key, typ
             | Var v -> 
                 stmBuilder.AddStatement v.Name
@@ -780,10 +758,8 @@ module private ReturnClause =
             | AS (v, fStatement) -> 
                 fStatement stmBuilder
                 v.Name, v.Type.GenericTypeArguments.[0]
-            | _ ->
-                expr
-                |> sprintf "RETURN. Trying to extract values but couldn't match expression: %A"
-                |> invalidOp
+            | _ ->  invalidOp (sprintf "RETURN. Couldn't match expression: %A" expr)
+                
 
         let rec inner (expr : Expr) =
             match expr with

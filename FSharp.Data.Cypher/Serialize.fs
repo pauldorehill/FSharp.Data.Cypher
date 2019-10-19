@@ -7,16 +7,15 @@ open FSharp.Reflection
 open FSharp.Quotations
 open Neo4j.Driver
 
-type Deserilizer = Generic.IReadOnlyDictionary<string,obj> -> string * Type -> Expr
+type Deserializer = Generic.IReadOnlyDictionary<string,obj> -> string * Type -> Expr
+
+type Serializer = obj -> obj option
 
 module TypeHelpers =
-    ()
-
-module Deserialization =
     
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
-    let hasInterface (interfaceTyp : Type) (typ : Type) = 
+    let private hasInterface (interfaceTyp : Type) (typ : Type) = 
         typ.GetInterfaces()
         |> Array.exists (fun typ ->
             if typ.IsGenericType 
@@ -31,7 +30,7 @@ module Deserialization =
 
     let bindingFlags = BindingFlags.Instance ||| BindingFlags.Public ||| BindingFlags.NonPublic
 
-    let (|Record|SingleCaseDU|PrmLessClassStruct|) (typ : Type) =
+    let internal (|Record|SingleCaseDU|PrmLessClassStruct|) (typ : Type) =
 
         let mutable uCI = None
         let mutable uCIFields = None
@@ -73,6 +72,22 @@ module Deserialization =
 
         else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
     
+    let createNullRecordOrClass typ =
+        match typ with
+        | Record (_, nullMaker) -> nullMaker()
+        | SingleCaseDU (_, nullMaker, _)  -> nullMaker()
+        | PrmLessClassStruct (props, nullMaker) -> nullMaker()
+
+    let getProperties typ =
+        match typ with
+        | Record (props, _) -> props
+        | SingleCaseDU (props, _, _)  -> props
+        | PrmLessClassStruct (props, _) -> props
+
+module Deserialization =
+    
+    open TypeHelpers
+
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let private checkCollection<'T> (rtnObj : obj) =
         if isNull rtnObj then Seq.empty
@@ -93,7 +108,7 @@ module Deserialization =
         if isNull obj then box None 
         else obj :?> 'T |> Some |> box
 
-    let coreTypes (rtnType : Type) (name : string) (rtnObj : obj) =
+    let private coreTypes (rtnType : Type) (name : string) (rtnObj : obj) =
 
         let nullCheck (obj : obj) = 
             if isNull obj then
@@ -136,7 +151,7 @@ module Deserialization =
         | v when v = typeof<unit> -> box ()
         | _ ->  invalidOp(sprintf "Unsupported type of: %s" rtnType.Name)
 
-    let complexTypes (rtnType : Type) (iEntity : #IEntity) =
+    let private complexTypes (rtnType : Type) (iEntity : #IEntity) =
 
         let makeObj props nullMaker =
             let mutable typeInstance = None
@@ -188,26 +203,16 @@ module Deserialization =
         | _ -> coreTypes rtnType key continuation.[key]
         |> fun rtnObj -> Expr.Value(rtnObj, rtnType)
 
-    let createNullRecordOrClass typ =
-        match typ with
-        | Record (_, nullMaker) -> nullMaker()
-        | SingleCaseDU (_, nullMaker, _)  -> nullMaker()
-        | PrmLessClassStruct (props, nullMaker) -> nullMaker()
-
-    let getProperties typ =
-        match typ with
-        | Record (props, _) -> props
-        | SingleCaseDU (props, _, _)  -> props
-        | PrmLessClassStruct (props, _) -> props
-
 module Serialization =  
 
-    let makeOption<'T> (o : obj) = 
+    open TypeHelpers
+
+    let private makeOption<'T> (o : obj) = 
         match o :?> 'T option with
         | Some o -> Some (box o) 
         | None -> None
 
-    let checkCollection<'T> (sndObj : obj) =
+    let private checkCollection<'T> (sndObj : obj) =
         let xs = sndObj :?> Generic.IEnumerable<'T>
         if Seq.isEmpty xs then None
         else
@@ -220,45 +225,43 @@ module Serialization =
     // TODO : 
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
-    let coreTypes (o : obj) =
-        if isNull o then None
-        else
-            match o.GetType() with
-            | sndType when sndType = typeof<string> -> Some o
-            | sndType when sndType = typeof<int64> -> Some o
-            | sndType when sndType = typeof<int32> -> Some o //:?> int32 |> int64 |> box
-            | sndType when sndType = typeof<float> -> Some o
-            | sndType when sndType = typeof<bool> -> Some o
-            | sndType when sndType = typeof<string option> -> makeOption<string> o
-            | sndType when sndType = typeof<int64 option> -> makeOption<int64> o
-            | sndType when sndType = typeof<int32 option> -> makeOption<int32> o
-            | sndType when sndType = typeof<float option> -> makeOption<float> o
-            | sndType when sndType = typeof<bool option> -> makeOption<bool> o
-            | sndType when sndType = typeof<string seq> -> checkCollection<string> o
-            | sndType when sndType = typeof<int64 seq> -> checkCollection<int64> o
-            | sndType when sndType = typeof<int32 seq> -> checkCollection<int32> o
-            | sndType when sndType = typeof<float seq> -> checkCollection<float> o
-            | sndType when sndType = typeof<bool seq> -> checkCollection<bool> o
-            | sndType when sndType = typeof<string []> -> checkCollection<string> o
-            | sndType when sndType = typeof<int64 []> -> checkCollection<int64> o
-            | sndType when sndType = typeof<int32 []> -> checkCollection<int32> o
-            | sndType when sndType = typeof<float []> -> checkCollection<float> o
-            | sndType when sndType = typeof<bool []> -> checkCollection<bool> o
-            | sndType when sndType = typeof<string list> -> checkCollection<string> o
-            | sndType when sndType = typeof<int64 list> -> checkCollection<int64> o
-            | sndType when sndType = typeof<int32 list> -> checkCollection<int32> o
-            | sndType when sndType = typeof<float list> -> checkCollection<float> o
-            | sndType when sndType = typeof<bool list> -> checkCollection<bool> o
-            | sndType when sndType = typeof<string Set> -> checkCollection<string> o
-            | sndType when sndType = typeof<int64 Set> -> checkCollection<int64> o
-            | sndType when sndType = typeof<int32 Set> -> checkCollection<int32> o
-            | sndType when sndType = typeof<float Set> -> checkCollection<float> o
-            | sndType when sndType = typeof<bool Set> -> checkCollection<bool> o
-            | sndType -> invalidOp (sprintf "Unsupported property/value: %s. Type: %A" sndType.Name sndType)
+    let private coreTypes (o : obj) =
+        match o.GetType() with
+        | sndType when sndType = typeof<string> -> Some o
+        | sndType when sndType = typeof<int64> -> Some o
+        | sndType when sndType = typeof<int32> -> Some o //:?> int32 |> int64 |> box
+        | sndType when sndType = typeof<float> -> Some o
+        | sndType when sndType = typeof<bool> -> Some o
+        | sndType when sndType = typeof<string option> -> makeOption<string> o
+        | sndType when sndType = typeof<int64 option> -> makeOption<int64> o
+        | sndType when sndType = typeof<int32 option> -> makeOption<int32> o
+        | sndType when sndType = typeof<float option> -> makeOption<float> o
+        | sndType when sndType = typeof<bool option> -> makeOption<bool> o
+        | sndType when sndType = typeof<string seq> -> checkCollection<string> o
+        | sndType when sndType = typeof<int64 seq> -> checkCollection<int64> o
+        | sndType when sndType = typeof<int32 seq> -> checkCollection<int32> o
+        | sndType when sndType = typeof<float seq> -> checkCollection<float> o
+        | sndType when sndType = typeof<bool seq> -> checkCollection<bool> o
+        | sndType when sndType = typeof<string []> -> checkCollection<string> o
+        | sndType when sndType = typeof<int64 []> -> checkCollection<int64> o
+        | sndType when sndType = typeof<int32 []> -> checkCollection<int32> o
+        | sndType when sndType = typeof<float []> -> checkCollection<float> o
+        | sndType when sndType = typeof<bool []> -> checkCollection<bool> o
+        | sndType when sndType = typeof<string list> -> checkCollection<string> o
+        | sndType when sndType = typeof<int64 list> -> checkCollection<int64> o
+        | sndType when sndType = typeof<int32 list> -> checkCollection<int32> o
+        | sndType when sndType = typeof<float list> -> checkCollection<float> o
+        | sndType when sndType = typeof<bool list> -> checkCollection<bool> o
+        | sndType when sndType = typeof<string Set> -> checkCollection<string> o
+        | sndType when sndType = typeof<int64 Set> -> checkCollection<int64> o
+        | sndType when sndType = typeof<int32 Set> -> checkCollection<int32> o
+        | sndType when sndType = typeof<float Set> -> checkCollection<float> o
+        | sndType when sndType = typeof<bool Set> -> checkCollection<bool> o
+        | sndType -> invalidOp (sprintf "Unsupported property/value: %s. Type: %A" sndType.Name sndType)
 
-    let complexTypes (o : obj) =
+    let private complexTypes (o : obj) =
         o.GetType()
-        |> Deserialization.getProperties
+        |> getProperties
         |> Array.choose (fun pi -> 
             match coreTypes (pi.GetValue o) with
             | Some o -> Some (pi.Name, o)
@@ -272,12 +275,12 @@ module Serialization =
             |> Some
 
     let serialize (o : obj) =
-        //if isNull o then None
-        //else 
-        match o.GetType() with
-        | v when Deserialization.isIFSNode v -> complexTypes o
-        | v when Deserialization.isIFSRel v -> complexTypes o
-        | _ -> coreTypes o
+        if isNull o then None
+        else 
+            match o.GetType() with
+            | v when isIFSNode v -> complexTypes o
+            | v when isIFSRel v -> complexTypes o
+            | _ -> coreTypes o
 
     //let makeIEntity (fsNode : #IFSEntity) = 
     //    { new IEntity with 
