@@ -272,7 +272,7 @@ module private  Helpers =
     
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
-        | NewObject (_, [ _ ] ) -> QuotationEvaluator.EvaluateUntyped expr
+        | NewObject (_, [ _ ]) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
         | Value (obj, _) -> obj
         | Var var -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
@@ -339,7 +339,7 @@ module private  Helpers =
 
         let functionMatcher (expr : Expr) =
             match expr with
-            | Functions "count" fStatement -> fStatement
+            | Functions "count" fStatement 
             | Functions "collect" fStatement -> fStatement
             | _ -> invalidOp (sprintf "AS, unmatched function: %A" expr)
 
@@ -381,12 +381,9 @@ module private BasicClause =
 
         let rec inner expr =
             match expr with
-            | Value _
-            | Var _
-            | PropertyGet _ -> extractStatement expr
+            | Let (_, _, expr) | Lambda (_, expr) -> inner expr
+            | Value _ | Var _ | PropertyGet _ -> extractStatement expr
             | NewTuple exprs -> makeTuple stmBuilder exprs
-            | Let (_, _, expr)
-            | Lambda (_, expr) -> inner expr
             | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
         inner expr
@@ -402,9 +399,7 @@ module private UnwindClause =
 
         let rec inner expr =
             match expr with
-            | Let (_, _, expr) -> inner expr
-            | TupleGet (expr, _) -> inner expr
-            | Lambda (_, expr) -> inner expr
+            | Let (_, _, expr) | TupleGet (expr, _) | Lambda (_, expr) -> inner expr
             | AS (_, fStatement) -> fStatement stmBuilder
             | _ -> sprintf "UNWIND CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
@@ -468,8 +463,7 @@ module private MatchClause =
 
             let rec inner (expr : Expr) =
                 match expr with
-                | Coerce (expr, _) -> inner expr
-                | Let (_, _, expr) -> inner expr
+                | Coerce (expr, _) | Let (_, _, expr) -> inner expr
                 | PropertyGet (None, ifs, []) -> stmBuilder.AddStatement ifs.Name
                 | Call(None, mi, []) -> stmBuilder.AddStatement mi.Name
                 | Var ifs -> stmBuilder.AddStatement ifs.Name
@@ -658,10 +652,7 @@ module private MatchClause =
 
         let rec inner (expr : Expr) =
             match expr with
-            | Coerce (expr, _)
-            | Let (_, _, expr)
-            | TupleGet (expr, _)
-            | Lambda (_, expr) -> inner expr
+            | Coerce (expr, _) | Let (_, _, expr) | TupleGet (expr, _) | Lambda (_, expr) -> inner expr
             | GetConstructors makeNode typedefofNode rtn
             | GetConstructors makeRel typedefofRel rtn
             | BuildJoin OpMMMM inner rtn
@@ -697,8 +688,7 @@ module private WhereSetClause =
 
         let rec inner (expr : Expr) =
             match expr with
-            | Let (_, _, expr)
-            | Lambda (_, expr) -> inner expr
+            | Let (_, _, expr) | Lambda (_, expr) -> inner expr
             | Operator OpEqual inner finalState
             | Operator OpLess inner finalState
             | Operator OpLessOrEqual inner finalState
@@ -760,12 +750,8 @@ module private ReturnClause =
 
         let rec inner (expr : Expr) =
             match expr with
-            | Let (_, _, expr)
-            | Lambda (_, expr) -> inner expr
-            | Value _
-            | Var _
-            | PropertyGet _
-            | AS (_, _) -> maker expr |> Choice1Of2
+            | Let (_, _, expr) | Lambda (_, expr) -> inner expr
+            | Value _ | Var _ | PropertyGet _ | AS (_, _) -> maker expr |> Choice1Of2
             | NewTuple exprs ->
                 exprs
                 |> List.mapi (StatementBuilder.JoinTuple maker stmBuilder)
@@ -924,7 +910,6 @@ module CypherBuilder =
                     | Call (_, mi, [ varValue; yieldEnd ]) when mi.Name = "For" ->
                         varExp <- Some varValue
                         inner yieldEnd
-                    | SpecificCall <@@ this.Yield @@> _ -> ()
                     | Let (v, e1, e2) ->
                         if not(varDic.ContainsKey v.Name) then
                             varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
@@ -981,15 +966,20 @@ module CypherBuilder =
                     Some (fExpr state stepAbove)
                 | _ -> None
 
+            let (|ForEachStatement|_|) (expr : Expr) =
+                match expr with
+                | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> -> 
+                    printfn "%A" forEachExpr
+                    
+                    invalidOp "FOREACH is not ready"
+                | _ -> None
+
             let buildQry (expr : Expr) =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
-                    | Sequential (Application (expr , _) , _) -> inner state expr
-                    | Lambda (var, expr) when var.Type = typeof<ForEach> -> invalidOp "FOREACH is not ready"
                     | SpecificCall <@@ this.Yield @@> _ -> state
-                    | Call (_, mi, exprs) when mi.Name = "For" -> state
-                    | Let (_, _, expr)
-                    | Lambda (_, expr) -> inner state expr
+                    | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" -> inner state thisStep
+                    | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
                     | NoStatement <@@ this.ASC @@> ASC state inner stepList
                     | MatchCreateMerge <@@ this.CREATE @@> CREATE state inner stepList
                     | Basic <@@ this.DELETE @@> DELETE state inner stepList
@@ -1011,6 +1001,7 @@ module CypherBuilder =
                     | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
                     | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
                     | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
+                    | ForEachStatement
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr
