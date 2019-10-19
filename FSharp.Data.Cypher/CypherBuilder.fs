@@ -251,6 +251,10 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         addNonParamterized stmt
         addParamterized stmt
 
+    static member JoinTuple action (stmBuilder : StatementBuilder) i v = 
+        if i <> 0 then stmBuilder.AddStatement ", "
+        action v
+
     member this.Build = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
 
 [<NoComparison; NoEquality>]
@@ -373,10 +377,7 @@ module private BasicClause =
                 |> invalidOp
 
         let makeTuple (stmBuilder: StatementBuilder) exprs =
-            exprs
-            |> List.iteri (fun i expr ->
-                if i <> 0 then stmBuilder.AddStatement ", "
-                extractStatement expr)
+            exprs |> List.iteri (StatementBuilder.JoinTuple extractStatement stmBuilder)
 
         let rec inner expr =
             match expr with
@@ -706,11 +707,7 @@ module private WhereSetClause =
             | Operator OpNotEqual inner finalState -> finalState
             | IfThenElse (left, right, Value(_, _)) -> buildState inner left "AND" right
             | IfThenElse (left, Value(_, _), right) -> buildState inner left "OR" right
-            | NewTuple exprs ->
-                exprs
-                |> List.iteri (fun i expr ->
-                    if i <> 0 then stmBuilder.AddStatement ", "
-                    inner expr)
+            | NewTuple exprs -> exprs |> List.iteri (StatementBuilder.JoinTuple inner stmBuilder)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
             | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddType expr
             | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddType expr
@@ -771,9 +768,7 @@ module private ReturnClause =
             | AS (_, _) -> maker expr |> Choice1Of2
             | NewTuple exprs ->
                 exprs
-                |> List.mapi (fun i expr ->
-                    if i <> 0 then stmBuilder.AddStatement ", "
-                    maker expr)
+                |> List.mapi (StatementBuilder.JoinTuple maker stmBuilder)
                 |> Choice2Of2
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
 
