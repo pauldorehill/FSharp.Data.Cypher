@@ -178,18 +178,6 @@ module ``All allowed Types on a Record`` =
           boolSet : bool Set }
         interface IFSNode<AllAllowed>
 
-    let makeToReturnType xs =
-        xs
-        |> fun xs ->
-            { new INode with 
-                member _.Labels = invalidOp "Fake Node - no labels"
-            interface IEntity with
-                member _.Id = invalidOp "Fake Node - no id."
-                member this.get_Item (key : string) : obj = invalidOp "Fake Node"
-                member _.Properties = readOnlyDict xs
-            interface IEquatable<INode> with
-                member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
-
     let baseList =
         [ "string", box "EMU"
           "stringOption", box "EMU"
@@ -222,12 +210,12 @@ module ``All allowed Types on a Record`` =
           "boolArray", box ([ box true ] |> ResizeArray)
           "boolSet", box ([ box true ] |> ResizeArray) ]
 
-    let allAllowedSome = makeToReturnType baseList
+    let allAllowedSome = Serialization.makeINode(0L, [], readOnlyDict baseList)
     
     let allAllowedNone = 
         baseList 
         |> List.filter (fun (n, _) -> not(n.ToLower().Contains "option"))
-        |> makeToReturnType
+        |> fun xs -> Serialization.makeINode(0L, [], readOnlyDict xs)
 
     let nonCollections =
         [ "string", box "EMU"
@@ -260,7 +248,7 @@ module ``All allowed Types on a Record`` =
           "boolList", box false
           "boolArray", box false
           "boolSet", box false ]
-        |> makeToReturnType
+        |> fun xs -> Serialization.makeINode(0L, [], readOnlyDict xs)
 
     let spoofDic =  
         [ "allAllowedSome", box allAllowedSome

@@ -282,30 +282,34 @@ module Serialization =
             | v when isIFSRel v -> complexTypes o
             | _ -> coreTypes o
 
-    //let makeIEntity (fsNode : #IFSEntity) = 
-    //    { new IEntity with 
-    //        member _.Id = invalidOp "Fake Entity."
-    //        member this.get_Item (key : string) : obj = invalidOp "Fake Entity."
-    //        member _.Properties = invalidOp "Fake Entity." }
+    let makeIEntity (id , di : Generic.IReadOnlyDictionary<string,obj>) = 
+        { new IEntity with 
+            member _.Id = id
+            member this.get_Item (key : string) : obj = this.Properties.[key]
+            member _.Properties = di }
     
-    //let makeINode (fsNode : #IFSNode<_>) = 
-    //    { new INode with 
-    //        member _.Labels = invalidOp "Fake Node - no labels"
-    //    interface IEntity with
-    //        member _.Id = invalidOp "Fake Node - no id."
-    //        member this.get_Item (key : string) : obj = invalidOp "Fake Node"
-    //        member _.Properties = invalidOp "Fake Node"
-    //    interface IEquatable<INode> with
-    //        member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
+    let makeINode (id, labels : NodeLabel list , di : Generic.IReadOnlyDictionary<string,obj>) = 
+        { new INode with 
+            member _.Labels = 
+                labels
+                |> List.map (fun x -> x.Value)
+                |> fun xs -> ResizeArray(xs).AsReadOnly() 
+                :> Generic.IReadOnlyList<string>
+        interface IEntity with
+            member _.Id = id
+            member this.get_Item (key : string) : obj = this.Properties.[key]
+            member _.Properties = di
+        interface IEquatable<INode> with
+            member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
             
-    //let makeIRelationship (fsRel : #IFSRel<_>) = 
-    //    { new IRelationship with 
-    //        member _.StartNodeId = invalidOp "Fake relationsip - no start node"
-    //        member _.EndNodeId = invalidOp "Fake relationsip - no end node"
-    //        member _.Type = invalidOp "Fake relationship - no type name"
-    //    interface IEntity with
-    //        member _.Id = invalidOp "Fake Node - no id."
-    //        member this.get_Item (key : string) : obj = this.Properties.Item key
-    //        member _.Properties = serialize fsRel :> Generic.IReadOnlyDictionary<string,obj>
-    //    interface IEquatable<IRelationship> with
-    //        member this.Equals(other : IRelationship) = this = (other :> IEquatable<IRelationship>) }
+    let makeIRelationship (startNodeId, endNodeId, label : RelLabel , di : Generic.IReadOnlyDictionary<string,obj>) = 
+        { new IRelationship with 
+            member _.StartNodeId = startNodeId
+            member _.EndNodeId = endNodeId
+            member _.Type = label.Value
+        interface IEntity with
+            member _.Id = invalidOp "Fake Node - no id."
+            member this.get_Item (key : string) : obj = this.Properties.Item key
+            member _.Properties = di
+        interface IEquatable<IRelationship> with
+            member this.Equals(other : IRelationship) = this = (other :> IEquatable<IRelationship>) }

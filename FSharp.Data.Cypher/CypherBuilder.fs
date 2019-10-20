@@ -95,8 +95,15 @@ type Clause =
 
     member this.IsWrite =
         match this with
-        | CREATE | MERGE | SET | DELETE | DETACH_DELETE | REMOVE | FOREACH -> true
-        | _ -> false
+        | CREATE | DELETE | DETACH_DELETE 
+        | FOREACH | MERGE | ON_CREATE_SET 
+        | ON_MATCH_SET | REMOVE | SET -> true
+        | ASC | DESC | LIMIT 
+        | MATCH | OPTIONAL_MATCH | ORDER_BY 
+        | RETURN | RETURN_DISTINCT | SKIP 
+        | UNION | UNION_ALL | UNWIND 
+        | WHERE | WITH -> false
+
     member this.IsRead = not (this.IsWrite)
 
 type private Operators =
@@ -144,9 +151,6 @@ type private Operators =
 type QuotationEvaluator =
     static member EvaluateUntyped (expr : Expr) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr
     static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
-
-[<NoComparison; NoEquality>]
-type Query<'T,'Result> = private | NA
 
 type private CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
     member _.Clause = clause
@@ -779,126 +783,131 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
+    
+    [<NoComparison; NoEquality>]
+    type ForEachQuery<'T> = private | FEQ
 
     // FOR EACH Supports the following commands : CREATE, MERGE, DELETE, FOREACH
     type ForEach () =    
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.CREATE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : ForEachQuery<'T> = FEQ
         
         [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
-        member _.DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = NA
+        member _.DELETE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Delete) : ForEachQuery<'T> = FEQ
         
         [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
-        member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = NA
-        
-        [<CustomOperation(ClauseNames.FOREACH, MaintainsVariableSpace = true)>]
-        member _.FOREACH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> ForEach) : Query<'T,'Result> = NA
+        member _.DETACH_DELETE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Delete) : ForEachQuery<'T> = FEQ
 
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.MERGE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : ForEachQuery<'T> = FEQ
 
         [<CustomOperation(ClauseNames.ON_CREATE_SET, MaintainsVariableSpace = true)>]
-        member _.ON_CREATE_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.ON_CREATE_SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
         [<CustomOperation(ClauseNames.ON_MATCH_SET, MaintainsVariableSpace = true)>]
-        member _.ON_MATCH_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.ON_MATCH_SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
         [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
-        member _.SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
-        member _.Yield (source : 'T) : Query<'T,unit> = NA
+        member _.Yield (source : 'T) : ForEachQuery<'T> = FEQ
         
-        member _.Zero () : Query<'T,'Result> = NA
+        member _.Zero () : ForEachQuery<'T> = FEQ
         
-        member _.For (source : Node<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Node<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
         
-        member _.For (source : Rel<'T>, f : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Rel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+        
+        member _.For (source : ForEachQuery<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
         
         member this.Run x : unit = ()
 
     let FOREACH = ForEach()
+    
+    [<NoComparison; NoEquality>]
+    type Query<'T,'Result> = private | Q
 
     type CypherBuilder () =
         
         [<CustomOperation(ClauseNames.ASC, MaintainsVariableSpace = true)>]
-        member _.ASC (source : Query<'T,'Result>) : Query<'T,'Result> = NA
+        member _.ASC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
-        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
-        member _.DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = NA
+        member _.DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.DESC, MaintainsVariableSpace = true)>]
-        member _.DESC (source : Query<'T,'Result>) : Query<'T,'Result> = NA
+        member _.DESC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
-        member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = NA
+        member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
-        member _.LIMIT (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = NA
+        member _.LIMIT (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
-        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
-        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.ON_CREATE_SET, MaintainsVariableSpace = true)>]
-        member _.ON_CREATE_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.ON_CREATE_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.ON_MATCH_SET, MaintainsVariableSpace = true)>]
-        member _.ON_MATCH_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.ON_MATCH_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
         // TODO: Look at how to handle the possiblitly of getting null into a result set
         // or passing option types into the Node<'T>
         /// Note this can return null
         [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
-        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = NA
+        member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
         // TODO: Can't get the intellisense here by adding in the types as it causes some issues
         [<CustomOperation(ClauseNames.ORDER_BY, MaintainsVariableSpace = true)>]
-        member _.ORDER_BY (source : Query<'T,'Result>, [<ProjectionParameter>] f : 'T -> 'Key) : Query<'T,'Result> = NA
+        member _.ORDER_BY (source : Query<'T,'Result>, [<ProjectionParameter>] f : 'T -> 'Key) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.RETURN, MaintainsVariableSpace = true)>]
-        member _.RETURN (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = NA
+        member _.RETURN (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = Q
 
         [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
-        member _.RETURN_DISTINCT (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = NA
+        member _.RETURN_DISTINCT (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = Q
 
         [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
-        member _.SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = NA
+        member _.SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.SKIP, MaintainsVariableSpace = true)>]
-        member _.SKIP (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = NA
+        member _.SKIP (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.UNION, MaintainsVariableSpace = true)>]
-        member _.UNION (source : Query<'T,'Result>) : Query<'T,'Result> = NA
+        member _.UNION (source : Query<'T,'Result>) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.UNION_ALL, MaintainsVariableSpace = true)>]
-        member _.UNION_ALL (source : Query<'T,'Result>) : Query<'T,'Result> = NA
+        member _.UNION_ALL (source : Query<'T,'Result>) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.UNWIND, MaintainsVariableSpace = true)>]
-        member _.UNWIND (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'AS list) : Query<'T,'Result> = NA
+        member _.UNWIND (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'AS list) : Query<'T,'Result> = Q
 
         [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
-        member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = NA
+        member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = Q
         
         [<CustomOperation(ClauseNames.WITH, MaintainsVariableSpace = true)>]
-        member _.WITH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'With) : Query<'T,'Result> = NA
+        member _.WITH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'With) : Query<'T,'Result> = Q
 
-        member _.Yield (source : 'T) : Query<'T,unit> = NA
+        member _.Yield (source : 'T) : Query<'T,unit> = Q
         
-        member _.Zero () : Query<'T,unit> = NA
+        member _.Zero () : Query<'T,unit> = Q
         
-        member _.For (source : Query<'T,'Result>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Query<'T,'Result>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
         
-        member _.For (source : Node<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Node<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
         
-        member _.For (source : Rel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = NA
+        member _.For (source : Rel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
-        member _.Quote (query : Expr<Query<'T,'Result>>) = NA
+        member _.Quote (query : Expr<Query<'T,'Result>>) = Q
         
         member this.Run (expr : Expr<Query<'T,'Result>>) =
             // TODO: This is a bit rough and ready
@@ -1001,7 +1010,7 @@ module CypherBuilder =
                     | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
                     | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
                     | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
-                    | ForEachStatement
+                    | ForEachStatement -> state
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
                 inner StepBuilder.Init expr
