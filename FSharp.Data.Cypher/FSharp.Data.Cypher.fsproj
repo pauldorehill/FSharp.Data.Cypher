@@ -12,8 +12,6 @@
     <Compile Include="CypherBuilder.fs" />
   </ItemGroup>
 
-  <ItemGroup />
-
   <ItemGroup>
     <PackageReference Include="Neo4j.Driver" Version="4.0.0-alpha01" />
   </ItemGroup>

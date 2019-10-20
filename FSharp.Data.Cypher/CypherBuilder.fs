@@ -128,19 +128,52 @@ type private CypherStep(clause : Clause, statement : string, rawStatement : stri
     member _.RawStatement = rawStatement
     member _.Parameters = parameters
 
-[<NoComparison; NoEquality>]
-type private StepBuilder private (StepNo : int,  steps : CypherStep list) =
-    let mutable steps = steps
-    let mutable stepNo = StepNo
-    member this.Add (step : CypherStep) = 
-        stepNo <- stepNo + 1
-        steps <- step :: steps
+[<Sealed; NoComparison; NoEquality>]
+type private StepBuilder (serializer : Serializer) =
+    let mutable prms : ParameterList = []
+    let mutable steps : CypherStep list = []
+    let parameterizedSb = Text.StringBuilder()
+    let nonParameterizedSb = Text.StringBuilder()
+    let addParamterized (str : string) = parameterizedSb.Append str |> ignore
+    let addNonParamterized (str : string) = nonParameterizedSb.Append str |> ignore
+    let rec fixStringParameter (o : obj) =
+        match o with
+        | :? unit -> "null"
+        | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // TODO: See https://neo4j.com/docs/cypher-manual/3.5/syntax/expressions/ fro full list
+        | :? bool as b -> b.ToString().ToLower()
+        | :? ResizeArray<obj> as xs ->
+            xs
+            |> Seq.map string
+            |> String.concat ", "
+            |> sprintf "[%s]"
+
+        | :? Generic.Dictionary<string, obj> as d ->
+            d
+            |> Seq.map (function KeyValue (k, v) -> k + ": " + fixStringParameter v)
+            |> String.concat ", "
+            |> sprintf "{%s}"
+        | _ -> string o
     
-    member _.GetStepNo() = stepNo
+    let add (o : obj option) =
+        let key = "p" + prms.Length.ToString("x2")
+        addParamterized StepBuilder.KeySymbol
+        addParamterized key
+            
+        match o with
+        | Some o -> addNonParamterized (fixStringParameter o)
+        | None -> addNonParamterized "null"
+        prms <- (key, o) :: prms
+        key
 
-    static member Init = StepBuilder(1, [])
+    member _.serialize = serializer
 
-    member this.Build (continuation : ReturnContination<'T> option) =
+    static member KeySymbol = "$"
+    
+    static member JoinTuple action (stmBuilder : StepBuilder) i v =
+        if i <> 0 then stmBuilder.AddStatement ", "
+        action v
+
+    member _.Build (continuation : ReturnContination<'T> option) =
         let sb = Text.StringBuilder()
         let makeQuery (paramterized : bool) (multiline : bool) =
             let add (s : string) = sb.Append s |> ignore
@@ -176,63 +209,23 @@ type private StepBuilder private (StepNo : int,  steps : CypherStep list) =
         let continuation = if typeof<'T> = typeof<unit> then None else continuation // If returning unit, no point running the continuation
 
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
-
-type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
-    let mutable prms : ParameterList = []
-    let mutable stepCount : int = stepBuilder.GetStepNo()
-    let parameterizedSb = Text.StringBuilder()
-    let nonParameterizedSb = Text.StringBuilder()
-    let addParamterized (str : string) = parameterizedSb.Append str |> ignore
-    let addNonParamterized (str : string) = nonParameterizedSb.Append str |> ignore
-    let rec fixStringParameter (o : obj) =
-        match o with
-        | :? unit -> "null"
-        | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // TODO: See https://neo4j.com/docs/cypher-manual/3.5/syntax/expressions/ fro full list
-        | :? bool as b -> b.ToString().ToLower()
-        | :? ResizeArray<obj> as xs ->
-            xs
-            |> Seq.map string
-            |> String.concat ", "
-            |> sprintf "[%s]"
-
-        | :? Generic.Dictionary<string, obj> as d ->
-            d
-            |> Seq.map (function KeyValue (k, v) -> k + ": " + fixStringParameter v)
-            |> String.concat ", "
-            |> sprintf "{%s}"
-        | _ -> string o
-
-    let generateKey() =
-        let key = "p" + stepCount.ToString("x2")
-        stepCount <- stepCount + 1
-        addParamterized StatementBuilder.KeySymbol
-        addParamterized key
-        key
-
-    let add (o : obj option) =
-        let key = generateKey()
-        match o with
-        | Some o -> addNonParamterized (fixStringParameter o)
-        | None -> addNonParamterized "null"
-        prms <- (key, o) :: prms
-        key
-
-    static member KeySymbol = "$"
-    member _.Clause = clause
     
-    member this.AddTypeRtnKey (o : obj) = Serialization.serialize o |> add
+    member this.AddTypeRtnKey (o : obj) = this.serialize o |> add
+    
     member this.AddType (o : obj) = this.AddTypeRtnKey o |> ignore
+    
     member this.AddType (expr : Expr) = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
     
     member _.AddStatement (stmt : string) =
         addNonParamterized stmt
         addParamterized stmt
-
-    static member JoinTuple action (stmBuilder : StatementBuilder) i v =
-        if i <> 0 then stmBuilder.AddStatement ", "
-        action v
-
-    member this.Build() = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
+    
+    member _.FinaliseClause (clause : Clause) = 
+        let step = CypherStep(clause, string parameterizedSb, string nonParameterizedSb, prms)
+        parameterizedSb.Clear() |> ignore
+        nonParameterizedSb.Clear() |> ignore
+        prms <- []
+        steps <- step :: steps
 
 [<NoComparison; NoEquality>]
 type AS<'T>() =
@@ -297,20 +290,20 @@ module private  Helpers =
         let (|Functions|_|) name (expr : Expr) =
             match expr with
             | Call (None, mi, [ Var v ]) when mi.Name = name ->
-                let f (stmBuilder : StatementBuilder) =
-                    stmBuilder.AddStatement name
-                    stmBuilder.AddStatement "("
-                    stmBuilder.AddStatement v.Name
-                    stmBuilder.AddStatement ")"
+                let f (stepBuilder : StepBuilder) =
+                    stepBuilder.AddStatement name
+                    stepBuilder.AddStatement "("
+                    stepBuilder.AddStatement v.Name
+                    stepBuilder.AddStatement ")"
                 Some f
             | Call (None, mi, [ PropertyGet (Some (Var v), pi, []) ]) when mi.Name = name ->
-                let f (stmBuilder : StatementBuilder) =
-                    stmBuilder.AddStatement name
-                    stmBuilder.AddStatement "("
-                    stmBuilder.AddStatement v.Name
-                    stmBuilder.AddStatement "."
-                    stmBuilder.AddStatement pi.Name
-                    stmBuilder.AddStatement ")"
+                let f (stepBuild : StepBuilder) =
+                    stepBuild.AddStatement name
+                    stepBuild.AddStatement "("
+                    stepBuild.AddStatement v.Name
+                    stepBuild.AddStatement "."
+                    stepBuild.AddStatement pi.Name
+                    stepBuild.AddStatement ")"
                 Some f
             | _ -> None
 
@@ -335,61 +328,53 @@ module private  Helpers =
 
 module private BasicClause =
 
-    let make (stepState : StepBuilder) clause (expr : Expr) =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+    let make (stepBuilder : StepBuilder) (expr : Expr) =
 
         let extractStatement (exp : Expr) =
             match exp with
-            | Value (o, _) -> stmBuilder.AddType o
-            | Var v -> stmBuilder.AddStatement v.Name
+            | Value (o, _) -> stepBuilder.AddType o
+            | Var v -> stepBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) ->
-                stmBuilder.AddStatement v.Name
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
-            | PropertyGet (None, pi, _) -> stmBuilder.AddStatement pi.Name
+                stepBuilder.AddStatement v.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
+            | PropertyGet (None, pi, _) -> stepBuilder.AddStatement pi.Name
             | _ ->
                 exp
                 |> sprintf "Trying to extract statement but couldn't match expression: %A"
                 |> invalidOp
 
-        let makeTuple (stmBuilder: StatementBuilder) exprs =
-            exprs |> List.iteri (StatementBuilder.JoinTuple extractStatement stmBuilder)
+        let makeTuple exprs =
+            exprs |> List.iteri (StepBuilder.JoinTuple extractStatement stepBuilder)
 
         let rec inner expr =
             match expr with
             | Let (_, _, expr) | Lambda (_, expr) -> inner expr
             | Value _ | Var _ | PropertyGet _ -> extractStatement expr
-            | NewTuple exprs -> makeTuple stmBuilder exprs
+            | NewTuple exprs -> makeTuple exprs
             | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
         inner expr
-        stmBuilder
 
 module private UnwindClause =
 
     open Helpers
 
-    let make (stepState : StepBuilder) clause (expr : Expr) =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+    let make (stepBuilder : StepBuilder) (expr : Expr) =
 
         let rec inner expr =
             match expr with
             | Let (_, _, expr) | TupleGet (expr, _) | Lambda (_, expr) -> inner expr
-            | AS (_, fStatement) -> fStatement stmBuilder
+            | AS (_, fStatement) -> fStatement stepBuilder
             | _ -> sprintf "UNWIND CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
         inner expr
-        stmBuilder
 
 module private MatchClause =
 
     open Helpers
 
-    let make (stepState : StepBuilder) (clause : Clause) (varDic : VarDic) expr =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+    let make (stepBuilder : StepBuilder) (varDic : VarDic) expr =
 
         // Use these since match statements happy with typeof<_>
         let typedefofNode = typedefof<Node<_>>
@@ -421,30 +406,30 @@ module private MatchClause =
 
                 let build i (pi : PropertyInfo) =
                     let name () =
-                        if isFirst then isFirst <- false else stmBuilder.AddStatement ", "
-                        stmBuilder.AddStatement pi.Name
-                        stmBuilder.AddStatement ": "
+                        if isFirst then isFirst <- false else stepBuilder.AddStatement ", "
+                        stepBuilder.AddStatement pi.Name
+                        stepBuilder.AddStatement ": "
 
                     match fieldValues.[i] with
                     | Choice1Of3 expr ->
                         name ()
-                        stmBuilder.AddType expr
+                        stepBuilder.AddType expr
                     | Choice2Of3 o ->
                         name ()
-                        stmBuilder.AddType o
+                        stepBuilder.AddType o
                     | Choice3Of3 _ -> ()
 
-                stmBuilder.AddStatement "{"
+                stepBuilder.AddStatement "{"
                 TypeHelpers.getProperties typ |> Array.iteri build
-                stmBuilder.AddStatement "}"
+                stepBuilder.AddStatement "}"
 
             let rec inner (expr : Expr) =
                 match expr with
                 | Coerce (expr, _) | Let (_, _, expr) -> inner expr
-                | PropertyGet (None, ifs, []) -> stmBuilder.AddStatement ifs.Name
-                | Call(None, mi, []) -> stmBuilder.AddStatement mi.Name
-                | Var ifs -> stmBuilder.AddStatement ifs.Name
-                | ValueWithName (_, _, name) -> stmBuilder.AddStatement name
+                | PropertyGet (None, ifs, []) -> stepBuilder.AddStatement ifs.Name
+                | Call(None, mi, []) -> stepBuilder.AddStatement mi.Name
+                | Var ifs -> stepBuilder.AddStatement ifs.Name
+                | ValueWithName (_, _, name) -> stepBuilder.AddStatement name
                 | NewRecord (typ, exprs) -> makeRecordOrClass typ exprs
                 | NewObject (_, _) -> invalidOp "Classes are not yet supported" // Hard to support classes..
                 | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
@@ -498,7 +483,7 @@ module private MatchClause =
             | ListCons statement -> statement
             | IsCreateSeq (GetRange varDic (startV , endV)) -> makeStatement startV endV
             | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
-            |> stmBuilder.AddStatement
+            |> stepBuilder.AddStatement
 
         let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =
             match ctrTypes, ctrExpr with
@@ -528,10 +513,10 @@ module private MatchClause =
 
             inner expr
             |> string
-            |> stmBuilder.AddStatement
+            |> stepBuilder.AddStatement
 
         let makeRel (ctrTypes : Type []) (ctrExpr : Expr list) =
-            stmBuilder.AddStatement "["
+            stepBuilder.AddStatement "["
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typedefofIFSRelationship |] param -> makeIFS param
@@ -550,26 +535,26 @@ module private MatchClause =
             | ThreeParams [| typedefofIFSRelationship; typeofRelLabel; typedefofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS param1
                 makeRelLabel param2
-                stmBuilder.AddStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
 
-            stmBuilder.AddStatement "]"
+            stepBuilder.AddStatement "]"
 
         let makeNodeLabelList (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
             | _ -> extractObject varDic expr :?> NodeLabel list
-            |> List.iter (string >> stmBuilder.AddStatement)
+            |> List.iter (string >> stepBuilder.AddStatement)
 
         let makeNodeLabel expr =
             extractObject varDic expr
             :?> NodeLabel
             |> string
-            |> stmBuilder.AddStatement
+            |> stepBuilder.AddStatement
 
         let makeNode (ctrTypes : Type []) (ctrExpr : Expr list) =
-            stmBuilder.AddStatement "("
+            stepBuilder.AddStatement "("
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typeofNodeLabel |] param -> makeNodeLabel param
@@ -583,21 +568,21 @@ module private MatchClause =
                 makeNodeLabelList param2
             | TwoParams [| typedefofIFSNode; typedefofIFSNode |] (param1, param2) ->
                 makeIFS param1
-                stmBuilder.AddStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param2
             | ThreeParams [| typedefofIFSNode; typeofNodeLabel; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabel param2
-                stmBuilder.AddStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | ThreeParams [| typedefofIFSNode; typeofNodeLabelList; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabelList param2
-                stmBuilder.AddStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp
 
-            stmBuilder.AddStatement ")"
+            stepBuilder.AddStatement ")"
 
         let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
             let isTyp (ci : ConstructorInfo) =
@@ -622,7 +607,7 @@ module private MatchClause =
             match expr with
             | Call (_, mi, [ left; right ]) when mi.Name = operator.Name ->
                 fResult left
-                stmBuilder.AddStatement (string operator)
+                stepBuilder.AddStatement (string operator)
                 fResult right
                 Some ()
             | _ -> None
@@ -642,19 +627,16 @@ module private MatchClause =
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
 
         inner expr
-        stmBuilder
 
 module private WhereSetClause =
     // TODO : full setting of node / rel
-    let make (stepState : StepBuilder) clause (expr : Expr) =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+    let make (stepBuilder : StepBuilder) (expr : Expr) =
 
         let buildState fExpr left symbol right =
             fExpr left
-            stmBuilder.AddStatement " "
-            stmBuilder.AddStatement symbol
-            stmBuilder.AddStatement " "
+            stepBuilder.AddStatement " "
+            stepBuilder.AddStatement symbol
+            stepBuilder.AddStatement " "
             fExpr right
 
         let (|Operator|_|) (operator : Operators) fExpr expr =
@@ -674,53 +656,50 @@ module private WhereSetClause =
             | Operator OpNotEqual inner finalState -> finalState
             | IfThenElse (left, right, Value(_, _)) -> buildState inner left "AND" right
             | IfThenElse (left, Value(_, _), right) -> buildState inner left "OR" right
-            | NewTuple exprs -> exprs |> List.iteri (StatementBuilder.JoinTuple inner stmBuilder)
+            | NewTuple exprs -> exprs |> List.iteri (StepBuilder.JoinTuple inner stepBuilder)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
-            | NewUnionCase (ui, []) when ui.Name = "None" -> stmBuilder.AddType expr
-            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stmBuilder.AddType expr
-            | NewArray (_, _) -> stmBuilder.AddType expr
-            | Value (_, _) -> stmBuilder.AddType expr
+            | NewUnionCase (ui, []) when ui.Name = "None" -> stepBuilder.AddType expr
+            | NewUnionCase (ui, _) when ui.Name = "Cons" || ui.Name = "Empty" -> stepBuilder.AddType expr
+            | NewArray (_, _) -> stepBuilder.AddType expr
+            | Value (_, _) -> stepBuilder.AddType expr
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) ->
                 inner e
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
             | PropertyGet (Some e, pi, _) ->
                 inner e
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
-            | PropertyGet (None, _, _) -> stmBuilder.AddType expr
-            | Var v -> stmBuilder.AddStatement v.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
+            | PropertyGet (None, _, _) -> stepBuilder.AddType expr
+            | Var v -> stepBuilder.AddStatement v.Name
             | _ -> invalidOp (sprintf "WHERE/SET statement - unmatched Expr: %A" expr)
 
         inner expr
-        stmBuilder
 
 module private ReturnClause =
 
     open Helpers
 
-    let make<'T> (stepState : StepBuilder) clause (expr : Expr) =
-
-        let stmBuilder = StatementBuilder(clause, stepState)
+    let make<'T> (deserialize : Deserializer) (stepBuilder : StepBuilder) (expr : Expr) =
 
         let maker (expr : Expr) =
             match expr with
             | Value (o, typ) ->
-                let key = StatementBuilder.KeySymbol + stmBuilder.AddTypeRtnKey o
+                let key = StepBuilder.KeySymbol + stepBuilder.AddTypeRtnKey o
                 key, typ
             | Var v ->
-                stmBuilder.AddStatement v.Name
+                stepBuilder.AddStatement v.Name
                 v.Name, v.Type
             | PropertyGet (Some (Var v), pi, _) ->
-                stmBuilder.AddStatement v.Name
-                stmBuilder.AddStatement "."
-                stmBuilder.AddStatement pi.Name
+                stepBuilder.AddStatement v.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
                 v.Name + "." + pi.Name, pi.PropertyType
             | PropertyGet (None, pi, []) ->
-                stmBuilder.AddStatement pi.Name
+                stepBuilder.AddStatement pi.Name
                 pi.Name, pi.PropertyType
             | AS (v, fStatement) ->
-                fStatement stmBuilder
+                fStatement stepBuilder
                 v.Name, v.Type.GenericTypeArguments.[0]
             | _ ->  invalidOp (sprintf "RETURN. Couldn't match expression: %A" expr)
 
@@ -730,22 +709,22 @@ module private ReturnClause =
             | Value _ | Var _ | PropertyGet _ | AS (_, _) -> maker expr |> Choice1Of2
             | NewTuple exprs ->
                 exprs
-                |> List.mapi (StatementBuilder.JoinTuple maker stmBuilder)
+                |> List.mapi (StepBuilder.JoinTuple maker stepBuilder)
                 |> Choice2Of2
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
 
         let result = inner expr // Must run, otherwise never builds RETURN
         let continuation (di : Generic.IReadOnlyDictionary<string,obj>) =
             match result with
-            | Choice1Of2 keyTyp -> Deserialization.deserialize di keyTyp
+            | Choice1Of2 keyTyp -> deserialize di keyTyp
             | Choice2Of2 keyTyps ->
                 keyTyps
-                |> List.map (Deserialization.deserialize di)
+                |> List.map (deserialize di)
                 |> Expr.NewTuple
             |> Expr.Cast<'T>
             |> QuotationEvaluator.Evaluate
 
-        Some continuation, stmBuilder
+        Some continuation
 
 [<AutoOpen>]
 module CypherBuilder =
@@ -787,7 +766,7 @@ module CypherBuilder =
 
         member _.Yield (source : 'T) : ForEachQuery<'T> = FEQ
 
-        member _.Zero (()) : ForEachQuery<'T> = FEQ
+        member _.Zero () : ForEachQuery<'T> = FEQ
 
         member _.For (source : ForEachQuery<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
@@ -805,6 +784,8 @@ module CypherBuilder =
     type Query<'T,'Result> = private | Q
 
     type CypherBuilder () =
+        let serializer : Serializer = Serialization.serialize
+        let deserializer : Deserializer = Deserialization.deserialize
 
         [<CustomOperation(nameof Clause.ASC, MaintainsVariableSpace = true)>]
         member _.ASC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
@@ -906,129 +887,132 @@ module CypherBuilder =
                 inner expr.Raw
                 varDic
 
-            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|MatchCreateMerge|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statementBuilder = MatchClause.make stepBuilder clause varDic thisStep
-                    Some (stepAbove, statementBuilder) 
+                    MatchClause.make stepBuilder varDic thisStep
+                    Some stepAbove 
                 | _ -> None
 
-            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|WhereSet|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statementBuilder = WhereSetClause.make stepBuilder clause thisStep
-                    Some (stepAbove, statementBuilder)
+                    WhereSetClause.make stepBuilder thisStep
+                    Some stepAbove
                 | _ -> None
 
             let mutable returnStatement : ReturnContination<'Result> option = None
 
-            let (|Return|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|Return|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let (continuation, statementBuilder) = ReturnClause.make<'Result> stepBuilder clause thisStep
-                    returnStatement <- continuation
-                    Some (stepAbove, statementBuilder)
+                    returnStatement <- ReturnClause.make<'Result> deserializer stepBuilder thisStep
+                    Some stepAbove
                 | _ -> None
 
-            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|Basic|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statementBuilder = BasicClause.make stepBuilder clause thisStep
-                    Some (stepAbove, statementBuilder)
+                    BasicClause.make stepBuilder thisStep
+                    Some stepAbove
                 | _ -> None
 
-            let (|Unwind|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|Unwind|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    let statementBuilder = UnwindClause.make stepBuilder clause thisStep
-                    Some (stepAbove, statementBuilder)
+                    UnwindClause.make stepBuilder thisStep
+                    Some stepAbove
                 | _ -> None
 
-            let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|NoStatement|_|) (callExpr : Expr) (expr : Expr) =
                 match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove ]) ->
-                    let statementBuilder = StatementBuilder(clause, stepBuilder)
-                    Some (stepAbove, statementBuilder)
+                | SpecificCall callExpr (_, _, [ stepAbove ]) -> Some stepAbove
                 | _ -> None
-
-            let buildForEach (stepBuilder : StepBuilder) (stmBuilder : StatementBuilder) (expr : Expr) =
-                
-                let rec inner (expr : Expr) =
-                    match expr with
-                    | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
-                    | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) | Coerce (expr, _) 
-                    | Sequential (_, expr) -> inner expr
-                    | SpecificCall <@@ FOREACH.Yield @@> (_, _, [ expr ]) ->  inner expr
-                    | SpecificCall <@@ FOREACH.Zero @@> _ -> ()
-                    | Var v -> stmBuilder.AddStatement v.Name
-                    | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" -> 
-                        inner thisStep
-                        stmBuilder.AddStatement " IN "
-                        inner stepAbove
-                        stmBuilder.AddStatement " |"
-                    | MatchCreateMerge <@@ FOREACH.CREATE @@> Clause.CREATE stepBuilder (stepAbove, clauseStmBuilder)
-                    | Basic <@@ FOREACH.DELETE @@> Clause.DELETE stepBuilder (stepAbove, clauseStmBuilder)
-                    | Basic <@@ FOREACH.DETACH_DELETE @@> Clause.DETACH_DELETE stepBuilder (stepAbove, clauseStmBuilder)
-                    | MatchCreateMerge <@@ FOREACH.MERGE @@> Clause.MERGE stepBuilder (stepAbove, clauseStmBuilder)
-                    | WhereSet <@@ FOREACH.ON_CREATE_SET @@> Clause.ON_CREATE_SET stepBuilder (stepAbove, clauseStmBuilder)
-                    | WhereSet <@@ FOREACH.ON_MATCH_SET @@> Clause.ON_MATCH_SET stepBuilder (stepAbove, clauseStmBuilder)
-                    | WhereSet <@@ FOREACH.SET @@> Clause.SET stepBuilder (stepAbove, clauseStmBuilder) ->
-                        clauseStmBuilder.AddStatement ")"
-                        clauseStmBuilder.Build() |> stepBuilder.Add
-                        inner stepAbove
-                    | _ -> invalidOp (sprintf "%A" expr)
-                
-                inner expr 
 
             let (|ForEachStatement|_|) (stepBuilder : StepBuilder) (expr : Expr) =
+                
+                let buildForEach (expr : Expr) =
+                
+                    let mutable isFirstStatement = true
+
+                    let rec inner (expr : Expr) =
+                        let moveToNext clause next = 
+                            if isFirstStatement then 
+                                stepBuilder.AddStatement ")"
+                                isFirstStatement <- false
+                            stepBuilder.FinaliseClause clause
+                            inner next
+
+                        match expr with
+                        | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
+                        | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) | Coerce (expr, _) 
+                        | Sequential (_, expr) -> inner expr
+                        | SpecificCall <@@ FOREACH.Yield @@> (_, _, [ expr ]) -> inner expr
+                        | SpecificCall <@@ FOREACH.Zero @@> _ -> ()
+                        | Var v -> stepBuilder.AddStatement v.Name
+                        | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" ->
+                            stepBuilder.AddStatement "("
+                            inner thisStep
+                            stepBuilder.AddStatement " IN "
+                            inner stepAbove
+                            stepBuilder.AddStatement " |"
+                        | MatchCreateMerge <@@ FOREACH.CREATE @@> stepBuilder stepAbove -> moveToNext Clause.CREATE stepAbove
+                        | Basic <@@ FOREACH.DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DELETE stepAbove
+                        | Basic <@@ FOREACH.DETACH_DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DETACH_DELETE stepAbove
+                        | MatchCreateMerge <@@ FOREACH.MERGE @@> stepBuilder stepAbove -> moveToNext Clause.MERGE stepAbove
+                        | WhereSet <@@ FOREACH.ON_CREATE_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_CREATE_SET stepAbove
+                        | WhereSet <@@ FOREACH.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
+                        | WhereSet <@@ FOREACH.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove 
+                        | _ -> invalidOp (sprintf "FOREACH. Unmatched Expr: %A" expr)
+                
+                    inner expr
+
                 let rec inner expr =
                     match expr with
                     | Let (_, _, expr) | Lambda (_, expr) -> inner expr
-                    | Sequential (Application (Lambda (var, expr) , _) , _) when var.Type = typeof<ForEach> -> 
-                        let stmBuilder = StatementBuilder(Clause.FOREACH, stepBuilder)
-                        stmBuilder.AddStatement "("
-                        buildForEach stepBuilder stmBuilder expr
-                        stmBuilder.Build() |> stepBuilder.Add 
+                    | Sequential (Application (Lambda (var, expr) , _) , _) when var.Type = typeof<ForEach> ->
+                        buildForEach expr
+                        stepBuilder.FinaliseClause Clause.FOREACH
                         Some ()
                     | _ -> None
 
                 inner expr
 
-            let stepBuilder = StepBuilder.Init
+            let stepBuilder = StepBuilder serializer
 
-            let buildQry (expr : Expr) =
-                let rec inner (expr : Expr) =
-                    match expr with
-                    | SpecificCall <@@ this.Yield @@> _ -> ()
-                    | Call (_, mi, [ stepAbove; ForEachStatement stepBuilder ]) when mi.Name = "For" -> inner stepAbove
-                    | Call (_, mi, _) when mi.Name = "For" -> ()
-                    | Let (_, _, expr) | Lambda (_, expr) -> inner expr
-                    | NoStatement <@@ this.ASC @@> Clause.ASC stepBuilder (stepAbove, stmBuilder)
-                    | MatchCreateMerge <@@ this.CREATE @@> Clause.CREATE stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.DELETE @@> Clause.DELETE stepBuilder (stepAbove, stmBuilder)
-                    | NoStatement <@@ this.DESC @@> Clause.DESC stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.DETACH_DELETE @@> Clause.DETACH_DELETE stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.LIMIT @@> Clause.LIMIT stepBuilder (stepAbove, stmBuilder)
-                    | MatchCreateMerge <@@ this.MATCH @@> Clause.MATCH stepBuilder (stepAbove, stmBuilder)
-                    | MatchCreateMerge <@@ this.MERGE @@> Clause.MERGE stepBuilder (stepAbove, stmBuilder)
-                    | WhereSet <@@ this.ON_CREATE_SET @@> Clause.ON_CREATE_SET stepBuilder (stepAbove, stmBuilder)
-                    | WhereSet <@@ this.ON_MATCH_SET @@> Clause.ON_MATCH_SET stepBuilder (stepAbove, stmBuilder)
-                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> Clause.OPTIONAL_MATCH stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.ORDER_BY @@> Clause.ORDER_BY stepBuilder (stepAbove, stmBuilder)
-                    | Return <@@ this.RETURN @@> Clause.RETURN stepBuilder (stepAbove, stmBuilder)
-                    | Return <@@ this.RETURN_DISTINCT @@> Clause.RETURN_DISTINCT stepBuilder (stepAbove, stmBuilder)
-                    | WhereSet <@@ this.SET @@> Clause.SET stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.SKIP @@> Clause.SKIP stepBuilder (stepAbove, stmBuilder)
-                    | NoStatement <@@ this.UNION @@> Clause.UNION stepBuilder (stepAbove, stmBuilder)
-                    | NoStatement <@@ this.UNION_ALL @@> Clause.UNION_ALL stepBuilder (stepAbove, stmBuilder)
-                    | Unwind <@@ this.UNWIND @@> Clause.UNWIND stepBuilder (stepAbove, stmBuilder)
-                    | WhereSet <@@ this.WHERE @@> Clause.WHERE stepBuilder (stepAbove, stmBuilder)
-                    | Basic <@@ this.WITH @@> Clause.WITH stepBuilder (stepAbove, stmBuilder) -> 
-                        stmBuilder.Build() |> stepBuilder.Add
-                        inner stepAbove
-                    | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
+            let rec buildQry (expr : Expr) =
 
-                inner expr
+                let moveToNext clause next = 
+                    stepBuilder.FinaliseClause clause
+                    buildQry next
+
+                match expr with
+                | SpecificCall <@@ this.Yield @@> _ -> ()
+                | Call (_, mi, [ stepAbove; ForEachStatement stepBuilder ]) when mi.Name = "For" -> buildQry stepAbove
+                | Call (_, mi, _) when mi.Name = "For" -> ()
+                | Let (_, _, expr) | Lambda (_, expr) -> buildQry expr
+                | NoStatement <@@ this.ASC @@> stepAbove -> moveToNext Clause.ASC stepAbove
+                | MatchCreateMerge <@@ this.CREATE @@> stepBuilder stepAbove -> moveToNext Clause.CREATE stepAbove
+                | Basic <@@ this.DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DELETE stepAbove
+                | NoStatement <@@ this.DESC @@> stepAbove -> moveToNext Clause.DESC stepAbove
+                | Basic <@@ this.DETACH_DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DETACH_DELETE stepAbove
+                | Basic <@@ this.LIMIT @@> stepBuilder stepAbove -> moveToNext Clause.LIMIT stepAbove
+                | MatchCreateMerge <@@ this.MATCH @@> stepBuilder stepAbove -> moveToNext Clause.MATCH stepAbove
+                | MatchCreateMerge <@@ this.MERGE @@> stepBuilder stepAbove -> moveToNext Clause.MERGE stepAbove
+                | WhereSet <@@ this.ON_CREATE_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_CREATE_SET stepAbove
+                | WhereSet <@@ this.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
+                | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> stepBuilder stepAbove -> moveToNext Clause.OPTIONAL_MATCH stepAbove
+                | Basic <@@ this.ORDER_BY @@> stepBuilder stepAbove -> moveToNext Clause.ORDER_BY stepAbove
+                | Return <@@ this.RETURN @@> stepBuilder stepAbove -> moveToNext Clause.RETURN stepAbove
+                | Return <@@ this.RETURN_DISTINCT @@> stepBuilder stepAbove -> moveToNext Clause.RETURN_DISTINCT stepAbove
+                | WhereSet <@@ this.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove 
+                | Basic <@@ this.SKIP @@> stepBuilder stepAbove -> moveToNext Clause.SKIP stepAbove
+                | NoStatement <@@ this.UNION @@> stepAbove -> moveToNext Clause.UNION stepAbove 
+                | NoStatement <@@ this.UNION_ALL @@> stepAbove -> moveToNext Clause.UNION_ALL stepAbove
+                | Unwind <@@ this.UNWIND @@> stepBuilder stepAbove -> moveToNext Clause.UNWIND stepAbove
+                | WhereSet <@@ this.WHERE @@> stepBuilder stepAbove -> moveToNext Clause.WHERE stepAbove
+                | Basic <@@ this.WITH @@>stepBuilder stepAbove -> moveToNext Clause.WITH stepAbove
+                | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
             buildQry expr.Raw
 
