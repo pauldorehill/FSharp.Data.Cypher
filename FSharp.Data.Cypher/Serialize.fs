@@ -12,18 +12,18 @@ type Deserializer = Generic.IReadOnlyDictionary<string,obj> -> string * Type -> 
 type Serializer = obj -> obj option
 
 module TypeHelpers =
-    
+
     let isOption (typ : Type) = typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Option<_>>
 
-    let private hasInterface (interfaceTyp : Type) (typ : Type) = 
+    let private hasInterface (interfaceTyp : Type) (typ : Type) =
         typ.GetInterfaces()
         |> Array.exists (fun typ ->
-            if typ.IsGenericType 
-            then typ.GetGenericTypeDefinition() = interfaceTyp  
+            if typ.IsGenericType
+            then typ.GetGenericTypeDefinition() = interfaceTyp
             else typ = interfaceTyp)
 
     let isIFSNode (typ : Type) = hasInterface typedefof<IFSNode<_>> typ
-    
+
     let isIFSRel (typ : Type) = hasInterface typedefof<IFSRel<_>> typ
 
     let isIFS (typ : Type) = isIFSNode typ || isIFSRel typ
@@ -36,10 +36,10 @@ module TypeHelpers =
         let mutable uCIFields = None
         let isSingleCase() =
             let u = FSharpType.GetUnionCases(typ, bindingFlags)
-            let fields = 
+            let fields =
                 u.[0].GetFields()
                 //|> Array.map (fun pi -> pi.Name, fun (o, o2) -> pi.SetValue(o, o2))
-            if u.Length = 1 && fields.Length <= 1 then 
+            if u.Length = 1 && fields.Length <= 1 then
                 uCI <- Some u.[0]
                 uCIFields <- Some fields
                 true
@@ -49,7 +49,7 @@ module TypeHelpers =
             let props = FSharpType.GetRecordFields typ
             let nullMaker () = FSharpValue.MakeRecord(typ, Array.zeroCreate props.Length, true)
             Record (props, nullMaker)
-        
+
         elif FSharpType.IsUnion(typ, bindingFlags) && isSingleCase() then
             let props = uCIFields.Value
             let nullMaker () = FSharpValue.MakeUnion(uCI.Value, Array.zeroCreate props.Length, true)
@@ -60,7 +60,7 @@ module TypeHelpers =
             if ctrs.Length = 0 then
                 invalidOp (sprintf "You must define a parameterless constructor for Class of type %s" typ.Name)
             else
-                let classMaker = 
+                let classMaker =
                     ctrs
                     |> Array.tryPick (fun c -> if c.GetParameters().Length = 0 then Some (fun () -> c.Invoke([||])) else None)
 
@@ -71,7 +71,7 @@ module TypeHelpers =
                 | None -> invalidOp "Only Classes/Structs with a parameterless constructor are supported"
 
         else invalidOp "Only parameterless classes, Single Case FSharp DUs, and FSharp Records are supported"
-    
+
     let createNullRecordOrClass typ =
         match typ with
         | Record (_, nullMaker) -> nullMaker()
@@ -85,7 +85,7 @@ module TypeHelpers =
         | PrmLessClassStruct (props, _) -> props
 
 module Deserialization =
-    
+
     open TypeHelpers
 
     // Driver returns a System.Collections.Generic.List`1[System.Object]
@@ -93,8 +93,8 @@ module Deserialization =
         if isNull rtnObj then Seq.empty
         elif rtnObj.GetType() = typeof<ResizeArray<obj>> then
             rtnObj :?> ResizeArray<obj> |> Seq.cast<'T>
-        else 
-            rtnObj :?> 'T |> Seq.singleton 
+        else
+            rtnObj :?> 'T |> Seq.singleton
 
     let private makeSeq<'T> rtnObj = checkCollection<'T> rtnObj
 
@@ -104,13 +104,13 @@ module Deserialization =
 
     let private makeSet<'T when 'T : comparison> rtnObj = checkCollection<'T> rtnObj |> Set.ofSeq
 
-    let private makeOption<'T> (obj : obj) = 
-        if isNull obj then box None 
+    let private makeOption<'T> (obj : obj) =
+        if isNull obj then box None
         else obj :?> 'T |> Some |> box
 
     let private coreTypes (rtnType : Type) (name : string) (rtnObj : obj) =
 
-        let nullCheck (obj : obj) = 
+        let nullCheck (obj : obj) =
             if isNull obj then
                 sprintf "A null object was returned for %s on type %A" name rtnType.Name
                 |> ArgumentNullException
@@ -155,15 +155,15 @@ module Deserialization =
 
         let makeObj props nullMaker =
             let mutable typeInstance = None
-                    
-            let makeTypeInstance () = 
+
+            let makeTypeInstance () =
                 typeInstance <- Some (nullMaker ())
-                    
+
             // This is here for classes/structs -> need to guard against DU
-            let isParameterlessProp (pi : PropertyInfo) = 
+            let isParameterlessProp (pi : PropertyInfo) =
                 not (FSharpType.IsUnion(rtnType, bindingFlags))
                 && pi.GetMethod.GetParameters() |> Array.isEmpty
-                    
+
             let maker (pi : PropertyInfo) =
                 match iEntity.Properties.TryGetValue pi.Name with
                 | true, rtnObj -> coreTypes pi.PropertyType pi.Name rtnObj
@@ -171,25 +171,25 @@ module Deserialization =
                 | false, _ when isParameterlessProp pi ->
                     if typeInstance.IsNone then makeTypeInstance ()
                     pi.GetValue typeInstance.Value // null check here?
-                | _ -> 
+                | _ ->
                     sprintf "Could not deserialize to %s type from the graph. The required property was not found: %s" rtnType.Name pi.Name
                     |> invalidOp
 
             Array.map maker props
-            
+
         if isNull iEntity then
             sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" rtnType.Name
             |> NullReferenceException
             |> raise
 
-        else 
+        else
             match rtnType with
-            | Record (props, nullMaker) -> 
+            | Record (props, nullMaker) ->
                 let obs = makeObj props nullMaker
                 FSharpValue.MakeRecord(rtnType, obs, true)
             | SingleCaseDU (props, nullMaker, ucs) ->
-                if props.Length = 0 then nullMaker() 
-                else 
+                if props.Length = 0 then nullMaker()
+                else
                     let obs = makeObj props nullMaker
                     FSharpValue.MakeUnion(ucs, obs, true)
             | PrmLessClassStruct (_, nullMaker) -> nullMaker() // No members to set
@@ -203,13 +203,13 @@ module Deserialization =
         | _ -> coreTypes rtnType key continuation.[key]
         |> fun rtnObj -> Expr.Value(rtnObj, rtnType)
 
-module Serialization =  
+module Serialization =
 
     open TypeHelpers
 
-    let private makeOption<'T> (o : obj) = 
+    let private makeOption<'T> (o : obj) =
         match o :?> 'T option with
-        | Some o -> Some (box o) 
+        | Some o -> Some (box o)
         | None -> None
 
     let private checkCollection<'T> (sndObj : obj) =
@@ -222,7 +222,7 @@ module Serialization =
             |> box
             |> Some
 
-    // TODO : 
+    // TODO :
     // make a single type check for both serializer and de, passing in the functions
     // Option is used here to avoid null - the null is inserted when sending off the final query
     let private coreTypes (o : obj) =
@@ -262,7 +262,7 @@ module Serialization =
     let private complexTypes (o : obj) =
         o.GetType()
         |> getProperties
-        |> Array.choose (fun pi -> 
+        |> Array.choose (fun pi ->
             match coreTypes (pi.GetValue o) with
             | Some o -> Some (pi.Name, o)
             | None -> None)
@@ -276,24 +276,24 @@ module Serialization =
 
     let serialize (o : obj) =
         if isNull o then None
-        else 
+        else
             match o.GetType() with
             | v when isIFSNode v -> complexTypes o
             | v when isIFSRel v -> complexTypes o
             | _ -> coreTypes o
 
-    let makeIEntity (id , di : Generic.IReadOnlyDictionary<string,obj>) = 
-        { new IEntity with 
+    let makeIEntity (id , di : Generic.IReadOnlyDictionary<string,obj>) =
+        { new IEntity with
             member _.Id = id
             member this.get_Item (key : string) : obj = this.Properties.[key]
             member _.Properties = di }
-    
-    let makeINode (id, labels : NodeLabel list , di : Generic.IReadOnlyDictionary<string,obj>) = 
-        { new INode with 
-            member _.Labels = 
+
+    let makeINode (id, labels : NodeLabel list , di : Generic.IReadOnlyDictionary<string,obj>) =
+        { new INode with
+            member _.Labels =
                 labels
                 |> List.map (fun x -> x.Value)
-                |> fun xs -> ResizeArray(xs).AsReadOnly() 
+                |> fun xs -> ResizeArray(xs).AsReadOnly()
                 :> Generic.IReadOnlyList<string>
         interface IEntity with
             member _.Id = id
@@ -301,9 +301,9 @@ module Serialization =
             member _.Properties = di
         interface IEquatable<INode> with
             member this.Equals(other : INode) = this = (other :> IEquatable<INode>) }
-            
-    let makeIRelationship (startNodeId, endNodeId, label : RelLabel , di : Generic.IReadOnlyDictionary<string,obj>) = 
-        { new IRelationship with 
+
+    let makeIRelationship (startNodeId, endNodeId, label : RelLabel , di : Generic.IReadOnlyDictionary<string,obj>) =
+        { new IRelationship with
             member _.StartNodeId = startNodeId
             member _.EndNodeId = endNodeId
             member _.Type = label.Value

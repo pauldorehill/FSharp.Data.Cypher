@@ -14,15 +14,15 @@ type private Label =
         | _ -> sprintf ":%s" label
 
 [<Sealed; NoComparison; NoEquality>]
-type NodeLabel(label : string) = 
+type NodeLabel(label : string) =
     member _.Value = Label.Make label
     override this.ToString() = this.Value
 
 // Neo technically calls these Type, however the use of type is a bit confusing so label has been used.
 [<Sealed; NoComparison; NoEquality>]
-type RelLabel(label : string) = 
+type RelLabel(label : string) =
     member _.Value = Label.Make label
-    static member (+) (r1 : RelLabel, r2 : RelLabel) = 
+    static member (+) (r1 : RelLabel, r2 : RelLabel) =
         match r1.Value, r2.Value with
         | s1, s2 when s1 = "" && s2 = "" -> r1
         | s1, _ when s1 = "" -> r2
@@ -43,26 +43,26 @@ type Rel<'R>() =
     /// Match a Relationship with the label
     new(label : RelLabel) = Rel<'R>()
 
-    /// Match a path length 
+    /// Match a path length
     new(pathHops : uint32) = Rel<'R>()
-    
-    /// Match a variable path length. It will use the minimum & max value in the list. 
+
+    /// Match a variable path length. It will use the minimum & max value in the list.
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
     new(pathHopsRange : uint32 list) = Rel<'R>()
 
-    /// Match a Relationship with the label and bind it to the variable name. 
+    /// Match a Relationship with the label and bind it to the variable name.
     /// The (/) operator can be used to specify multiple relationships
     new(relationship : IFSRel<'R>, label : RelLabel) = Rel<'R>()
-    
-    /// Match a Relationship with the label and a path length 
+
+    /// Match a Relationship with the label and a path length
     new(label : RelLabel, pathHops : uint32) = Rel<'R>()
 
     /// Match a Relationship with the label and a variable path length.
-    /// It will use the minimum & max value in the list. 
+    /// It will use the minimum & max value in the list.
     /// List expressions [ 0u .. 5u ] & list literals are accepted [ 0u; 5u ]
     new(label : RelLabel, pathHopsRange : uint32 list) = Rel<'R>()
 
-    /// Match a Relationship with the label and properties and bind it to the variable name. 
+    /// Match a Relationship with the label and properties and bind it to the variable name.
     /// The (/) operator can be used to specify multiple relationships
     new(relationship : IFSRel<'R>, label : RelLabel, relationshipWithProperties : IFSRel<'R>) = Rel<'R>()
 
@@ -118,19 +118,19 @@ type Node =
 
 [<AutoOpen>]
 module Ascii =
-    
+
     // Need this because:
-    // Quotations cannot contain expressions that make member constraint calls, 
+    // Quotations cannot contain expressions that make member constraint calls,
     // or uses of operators that implicitly resolve to a member constraint call
 
     let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1 -- graphEntity2
-    
+
     let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1 --> graphEntity2
-    
+
     let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1 <-- graphEntity2
-    
+
     let inline ( ---- ) node1 node2 = node1 ---- node2
-    
+
     let inline ( ----> ) node1 node2 = node1 ----> node2
-    
+
     let inline ( <---- ) node1 node2 = node1 <---- node2

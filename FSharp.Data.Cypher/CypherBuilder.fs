@@ -67,7 +67,7 @@ type Clause =
 
     member this.IsWrite =
         match this with
-        | CREATE | DELETE | DETACH_DELETE | FOREACH | MERGE 
+        | CREATE | DELETE | DETACH_DELETE | FOREACH | MERGE
         | ON_CREATE_SET | ON_MATCH_SET | REMOVE | SET -> true
         | _  -> false
 
@@ -154,23 +154,23 @@ type private StepBuilder (serializer : Serializer) =
             |> String.concat ", "
             |> sprintf "{%s}"
         | _ -> string o
-    
+
     let add (o : obj option) =
         let key = "p" + prmCount.ToString("x2")
         prmCount <- prmCount + 1
         addParamterized StepBuilder.KeySymbol
         addParamterized key
-            
+
         match o with
         | Some o -> addNonParamterized (fixStringParameter o)
         | None -> addNonParamterized "null"
         prms <- (key, o) :: prms
         key
 
-    member _.serialize = serializer
+    member _.Serialize = serializer
 
     static member KeySymbol = "$"
-    
+
     static member JoinTuple action (stmBuilder : StepBuilder) i v =
         if i <> 0 then stmBuilder.AddStatement ", "
         action v
@@ -211,18 +211,18 @@ type private StepBuilder (serializer : Serializer) =
         let continuation = if typeof<'T> = typeof<unit> then None else continuation // If returning unit, no point running the continuation
 
         Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
-    
-    member this.AddTypeRtnKey (o : obj) = this.serialize o |> add
-    
+
+    member this.AddTypeRtnKey (o : obj) = this.Serialize o |> add
+
     member this.AddType (o : obj) = this.AddTypeRtnKey o |> ignore
-    
+
     member this.AddType (expr : Expr) = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
-    
+
     member _.AddStatement (stmt : string) =
         addNonParamterized stmt
         addParamterized stmt
-    
-    member _.FinaliseClause (clause : Clause) = 
+
+    member _.FinaliseClause (clause : Clause) =
         let step = CypherStep(clause, string parameterizedSb, string nonParameterizedSb, prms)
         parameterizedSb.Clear() |> ignore
         nonParameterizedSb.Clear() |> ignore
@@ -775,10 +775,10 @@ module CypherBuilder =
         member _.For (source : IFSNode<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
         member _.For (source : IFSRel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-        
+
         member _.Quote (source : Expr<ForEachQuery<'T>>) = FEQ
-        
-        member this.Run (source : Expr<ForEachQuery<'T>>) : unit = ()
+
+        member _.Run (source : Expr<ForEachQuery<'T>>) : unit = ()
 
     let FOREACH = ForEach()
 
@@ -893,7 +893,7 @@ module CypherBuilder =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     MatchClause.make stepBuilder varDic thisStep
-                    Some stepAbove 
+                    Some stepAbove
                 | _ -> None
 
             let (|WhereSet|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
@@ -932,14 +932,14 @@ module CypherBuilder =
                 | _ -> None
 
             let (|ForEachStatement|_|) (stepBuilder : StepBuilder) (expr : Expr) =
-                
+
                 let buildForEach (expr : Expr) =
-                
+
                     let mutable isFirstStatement = true
 
                     let rec inner (expr : Expr) =
-                        let moveToNext clause next = 
-                            if isFirstStatement then 
+                        let moveToNext clause next =
+                            if isFirstStatement then
                                 stepBuilder.AddStatement ")"
                                 isFirstStatement <- false
                             stepBuilder.FinaliseClause clause
@@ -947,7 +947,7 @@ module CypherBuilder =
 
                         match expr with
                         | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
-                        | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) | Coerce (expr, _) 
+                        | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) | Coerce (expr, _)
                         | Sequential (_, expr) -> inner expr
                         | SpecificCall <@@ FOREACH.Yield @@> (_, _, [ expr ]) -> inner expr
                         | SpecificCall <@@ FOREACH.Zero @@> _ -> ()
@@ -964,9 +964,9 @@ module CypherBuilder =
                         | MatchCreateMerge <@@ FOREACH.MERGE @@> stepBuilder stepAbove -> moveToNext Clause.MERGE stepAbove
                         | WhereSet <@@ FOREACH.ON_CREATE_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_CREATE_SET stepAbove
                         | WhereSet <@@ FOREACH.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
-                        | WhereSet <@@ FOREACH.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove 
+                        | WhereSet <@@ FOREACH.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove
                         | _ -> invalidOp (sprintf "FOREACH. Unmatched Expr: %A" expr)
-                
+
                     inner expr
 
                 let rec inner expr =
@@ -984,7 +984,7 @@ module CypherBuilder =
 
             let rec buildQry (expr : Expr) =
 
-                let moveToNext clause next = 
+                let moveToNext clause next =
                     stepBuilder.FinaliseClause clause
                     buildQry next
 
@@ -1007,9 +1007,9 @@ module CypherBuilder =
                 | Basic <@@ this.ORDER_BY @@> stepBuilder stepAbove -> moveToNext Clause.ORDER_BY stepAbove
                 | Return <@@ this.RETURN @@> stepBuilder stepAbove -> moveToNext Clause.RETURN stepAbove
                 | Return <@@ this.RETURN_DISTINCT @@> stepBuilder stepAbove -> moveToNext Clause.RETURN_DISTINCT stepAbove
-                | WhereSet <@@ this.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove 
+                | WhereSet <@@ this.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove
                 | Basic <@@ this.SKIP @@> stepBuilder stepAbove -> moveToNext Clause.SKIP stepAbove
-                | NoStatement <@@ this.UNION @@> stepAbove -> moveToNext Clause.UNION stepAbove 
+                | NoStatement <@@ this.UNION @@> stepAbove -> moveToNext Clause.UNION stepAbove
                 | NoStatement <@@ this.UNION_ALL @@> stepAbove -> moveToNext Clause.UNION_ALL stepAbove
                 | Unwind <@@ this.UNWIND @@> stepBuilder stepAbove -> moveToNext Clause.UNWIND stepAbove
                 | WhereSet <@@ this.WHERE @@> stepBuilder stepAbove -> moveToNext Clause.WHERE stepAbove
