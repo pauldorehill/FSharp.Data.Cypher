@@ -10,7 +10,7 @@ open FSharp.Quotations.ExprShape
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
-[<RequireQualifiedAccess>]
+[<RequireQualifiedAccess; NoComparison; NoEquality>]
 type Clause =
     | ASC
     | CALL
@@ -67,12 +67,13 @@ type Clause =
 
     member this.IsWrite =
         match this with
-        | CREATE | DELETE | DETACH_DELETE | FOREACH 
-        | MERGE | ON_CREATE_SET | ON_MATCH_SET | REMOVE | SET -> true
+        | CREATE | DELETE | DETACH_DELETE | FOREACH | MERGE 
+        | ON_CREATE_SET | ON_MATCH_SET | REMOVE | SET -> true
         | _  -> false
 
     member this.IsRead = not (this.IsWrite)
 
+[<NoComparison; NoEquality>]
 type private Operators =
     | OpEqual
     | OpLess
@@ -115,22 +116,38 @@ type private Operators =
         | OpGreaterOrEqual ->">="
         | OpNotEqual -> "<>"
 
+[<Sealed; NoComparison; NoEquality>]
 type QuotationEvaluator =
     static member EvaluateUntyped (expr : Expr) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr
     static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
 
+[<Sealed; NoComparison; NoEquality>]
 type private CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
     member _.Clause = clause
     member _.Statement = statement
     member _.RawStatement = rawStatement
     member _.Parameters = parameters
 
-[<Sealed; NoComparison; NoEquality>]
-type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
-    member _.StepNo = stepNo
-    member private this.Steps = stepList
-    member this.Add (step : CypherStep) = StepBuilder(this.StepNo + 1, step :: this.Steps)
-    static member Init = StepBuilder(1, [])
+[<NoComparison; NoEquality>]
+type private StepBuilder =
+    private
+    | MainClause of StepNo : int * StepList : CypherStep list
+    | ForEachClause of OuterStepNo : int * StepNo : int * StepList : CypherStep list
+
+    member this.Steps =
+        match this with
+        | ForEachClause (_, stepNo, steps)
+        | MainClause (stepNo, steps) -> steps
+
+    member this.Add (step : CypherStep) = 
+        match this with
+        | ForEachClause (outerStepNo, stepNo, steps) -> ForEachClause (outerStepNo, stepNo + 1, step :: steps)
+        | MainClause  (stepNo, steps) -> MainClause (stepNo + 1, step :: steps)
+    
+    static member InitMainClause = MainClause(1, [])
+
+    static member InitForEachClause = MainClause(1, [])
+
     member this.Build (continuation : ReturnContination<'T> option) =
         let sb = Text.StringBuilder()
         let makeQuery (paramterized : bool) (multiline : bool) =
@@ -170,7 +187,6 @@ type private StepBuilder private (stepNo : int, stepList : CypherStep list) =
 type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
     let mutable prms : ParameterList = []
     let mutable prmCount : int = 1
-    let stepCount = stepBuilder.StepNo
     let parameterizedSb = Text.StringBuilder()
     let nonParameterizedSb = Text.StringBuilder()
     let addParamterized (str : string) = parameterizedSb.Append str |> ignore
@@ -193,31 +209,33 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
             |> sprintf "{%s}"
         | _ -> string o
 
-    static member KeySymbol = "$"
+    let keyPhrase = 
+        match stepBuilder with
+        | MainClause (stepNo, _) -> sprintf "step%iparam%i" stepNo
+        | ForEachClause (outerStepNo, stepNo, _) -> sprintf "step%ifes%iparam%i" outerStepNo stepNo
 
-    member _.Clause = clause
-
-    member _.GenerateKey() =
-        let key = sprintf "step%iparam%i" stepCount prmCount
+    let generateKey() =
+        let key = keyPhrase prmCount
         prmCount <- prmCount + 1
         addParamterized StatementBuilder.KeySymbol
         addParamterized key
         key
 
-    member this.Add (o : obj option) =
-        let key = this.GenerateKey()
+    let add (o : obj option) =
+        let key = generateKey()
         match o with
         | Some o -> addNonParamterized (fixStringParameter o)
         | None -> addNonParamterized "null"
         prms <- (key, o) :: prms
         key
 
-    member this.AddTypeRtnKey (o : obj) = Serialization.serialize o |> this.Add
-
+    static member KeySymbol = "$"
+    member _.Clause = clause
+    
+    member this.AddTypeRtnKey (o : obj) = Serialization.serialize o |> add
     member this.AddType (o : obj) = this.AddTypeRtnKey o |> ignore
-
-    member this.AddType expr = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
-
+    member this.AddType (expr : Expr) = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
+    
     member _.AddStatement (stmt : string) =
         addNonParamterized stmt
         addParamterized stmt
@@ -718,7 +736,6 @@ module private ReturnClause =
                 v.Name, v.Type.GenericTypeArguments.[0]
             | _ ->  invalidOp (sprintf "RETURN. Couldn't match expression: %A" expr)
 
-
         let rec inner (expr : Expr) =
             match expr with
             | Let (_, _, expr) | Lambda (_, expr) -> inner expr
@@ -754,19 +771,8 @@ module CypherBuilder =
     [<NoComparison; NoEquality>]
     type ForEachQuery<'T> = private | FEQ
 
-    /// <a href="https://neo4j.com/docs/cypher-manual/3.5/clauses/foreach/">FOREACH<a/> Supports the following commands:
-    /////
-
     /// <summary>Supports the following commands:
     /// <para>CREATE, DELETE, FOREACH, MERGE, SET</para>
-    /// </summary>
-
-    /// <summary>
-    ///     Retrieves information about the specified window.
-    ///     The function also retrieves the value at a specified offset into the extra window memory.
-    ///     From <see cref="!:https://msdn.microsoft.com/en-us/library/windows/desktop/ms633585(v=vs.85).aspx">this</see> MSDN-Link.
-    ///     AHref <a href="http://stackoverflow.com">here</a>.
-    ///     see-href <see href="http://stackoverflow.com">here</see>.
     /// </summary>
     type ForEach () =
 
@@ -793,15 +799,17 @@ module CypherBuilder =
 
         member _.Yield (source : 'T) : ForEachQuery<'T> = FEQ
 
-        member _.Zero (()) :ForEachQuery<'T> = FEQ
+        member _.Zero (()) : ForEachQuery<'T> = FEQ
 
         member _.For (source : ForEachQuery<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
         member _.For (source : IFSNode<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
         member _.For (source : IFSRel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-
-        member this.Run x : unit = ()
+        
+        member _.Quote (source : Expr<ForEachQuery<'T>>) = FEQ
+        
+        member this.Run (source : Expr<ForEachQuery<'T>>) : unit = ()
 
     let FOREACH = ForEach()
 
@@ -887,7 +895,7 @@ module CypherBuilder =
 
         member _.For (source : IFSRel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
-        member _.Quote (query : Expr<Query<'T,'Result>>) = Q
+        member _.Quote (source : Expr<Query<'T,'Result>>) = Q
 
         member this.Run (expr : Expr<Query<'T,'Result>>) =
             // TODO: This is a bit rough and ready
@@ -910,90 +918,119 @@ module CypherBuilder =
                 inner expr.Raw
                 varDic
 
-            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|MatchCreateMerge|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let state = MatchClause.make state clause varDic thisStep
-                    Some (fExpr state stepAbove)
+                    Some (state, stepAbove)
                 | _ -> None
 
-            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|WhereSet|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let state = WhereSetClause.make state clause thisStep
-                    Some (fExpr state stepAbove)
+                    Some (state, stepAbove)
                 | _ -> None
 
             let mutable returnStatement : ReturnContination<'Result> option = None
 
-            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|Return|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let (state, continuation) = ReturnClause.make<'Result> state clause thisStep
                     returnStatement <- Some continuation
-                    Some (fExpr state stepAbove)
+                    Some (state, stepAbove)
                 | _ -> None
 
-            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|Basic|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let state = BasicClause.make state clause thisStep
-                    Some (fExpr state stepAbove)
+                    Some (state, stepAbove)
                 | _ -> None
 
-            let (|Unwind|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|Unwind|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
                     let state = UnwindClause.make state clause thisStep
-                    Some (fExpr state stepAbove)
+                    Some (state, stepAbove)
                 | _ -> None
 
-            let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) fExpr (expr : Expr) =
+            let (|NoStatement|_|) (callExpr : Expr) (clause : Clause) (state : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove ]) ->
-                    let state = state.Add(StatementBuilder(clause, state).Build)
-                    Some (fExpr state stepAbove)
+                    let step = StatementBuilder(clause, state).Build
+                    let state = state.Add step
+                    Some (state, stepAbove)
                 | _ -> None
+
+            let buildForEach (expr : Expr) =
+                
+                let rec inner (state : StepBuilder) (expr : Expr) =
+                    match expr with
+                    | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
+                    | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
+                    | SpecificCall <@@ FOREACH.Yield @@> _ 
+                    | SpecificCall <@@ FOREACH.Zero @@> _ -> state
+                    | Call (_, mi, _) when mi.Name = "For" -> state
+                    | MatchCreateMerge <@@ FOREACH.CREATE @@> Clause.CREATE state (newState, stepAbove)
+                    | Basic <@@ FOREACH.DELETE @@> Clause.DELETE state (newState, stepAbove)
+                    | Basic <@@ FOREACH.DETACH_DELETE @@> Clause.DETACH_DELETE state (newState, stepAbove)
+                    | MatchCreateMerge <@@ FOREACH.MERGE @@> Clause.MERGE state (newState, stepAbove)
+                    | WhereSet <@@ FOREACH.ON_CREATE_SET @@> Clause.ON_CREATE_SET state (newState, stepAbove)
+                    | WhereSet <@@ FOREACH.ON_MATCH_SET @@> Clause.ON_MATCH_SET state (newState, stepAbove)
+                    | WhereSet <@@ FOREACH.SET @@> Clause.SET state (newState, stepAbove) -> inner newState stepAbove
+                    | _ -> invalidOp (sprintf "%A" expr)
+
+                let state = inner StepBuilder.InitForEachClause expr
+                let cypher = state.Build None
+                cypher
 
             let (|ForEachStatement|_|) (expr : Expr) =
-                match expr with
-                | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> ->
-                    printfn "%A" forEachExpr
+                let rec inner expr =
+                    match expr with
+                    | Let (_, _, expr) | Lambda (_, expr) -> inner expr
+                    | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> -> Some forEachExpr
+                    | _ -> None
 
-                    invalidOp "FOREACH is not ready"
-                | _ -> None
+                inner expr
 
             let buildQry (expr : Expr) =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
                     | SpecificCall <@@ this.Yield @@> _ -> state
-                    | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" -> inner state thisStep
+                    | Call (_, mi, [ stepAbove; ForEachStatement thisStep ]) when mi.Name = "For" ->
+                        let newState = buildForEach thisStep
+                        inner state stepAbove
+                    | Call (_, mi, _) when mi.Name = "For" -> state
                     | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
-                    | NoStatement <@@ this.ASC @@> Clause.ASC state inner stepList
-                    | MatchCreateMerge <@@ this.CREATE @@> Clause.CREATE state inner stepList
-                    | Basic <@@ this.DELETE @@> Clause.DELETE state inner stepList
-                    | NoStatement <@@ this.DESC @@> Clause.DESC state inner stepList
-                    | Basic <@@ this.DETACH_DELETE @@> Clause.DETACH_DELETE state inner stepList
-                    | Basic <@@ this.LIMIT @@> Clause.LIMIT state inner stepList
-                    | MatchCreateMerge <@@ this.MATCH @@> Clause.MATCH state inner stepList
-                    | MatchCreateMerge <@@ this.MERGE @@> Clause.MERGE state inner stepList
-                    | WhereSet <@@ this.ON_CREATE_SET @@> Clause.ON_CREATE_SET state inner stepList
-                    | WhereSet <@@ this.ON_MATCH_SET @@> Clause.ON_MATCH_SET state inner stepList
-                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> Clause.OPTIONAL_MATCH state inner stepList
-                    | Basic <@@ this.ORDER_BY @@> Clause.ORDER_BY state inner stepList
-                    | Return <@@ this.RETURN @@> Clause.RETURN state inner stepList
-                    | Return <@@ this.RETURN_DISTINCT @@> Clause.RETURN_DISTINCT state inner stepList
-                    | WhereSet <@@ this.SET @@> Clause.SET state inner stepList
-                    | Basic <@@ this.SKIP @@> Clause.SKIP state inner stepList
-                    | NoStatement <@@ this.UNION @@> Clause.UNION state inner stepList
-                    | NoStatement <@@ this.UNION_ALL @@> Clause.UNION_ALL state inner stepList
-                    | Unwind <@@ this.UNWIND @@> Clause.UNWIND state inner stepList
-                    | WhereSet <@@ this.WHERE @@> Clause.WHERE state inner stepList
-                    | Basic <@@ this.WITH @@> Clause.WITH state inner stepList -> stepList
-                    | ForEachStatement -> state
+                    | NoStatement <@@ this.ASC @@> Clause.ASC state (newState, stepAbove)
+                    | MatchCreateMerge <@@ this.CREATE @@> Clause.CREATE state (newState, stepAbove)
+                    | Basic <@@ this.DELETE @@> Clause.DELETE state (newState, stepAbove)
+                    | NoStatement <@@ this.DESC @@> Clause.DESC state (newState, stepAbove)
+                    | Basic <@@ this.DETACH_DELETE @@> Clause.DETACH_DELETE state (newState, stepAbove)
+                    | Basic <@@ this.LIMIT @@> Clause.LIMIT state (newState, stepAbove)
+                    | MatchCreateMerge <@@ this.MATCH @@> Clause.MATCH state (newState, stepAbove)
+                    | MatchCreateMerge <@@ this.MERGE @@> Clause.MERGE state (newState, stepAbove)
+                    | WhereSet <@@ this.ON_CREATE_SET @@> Clause.ON_CREATE_SET state (newState, stepAbove)
+                    | WhereSet <@@ this.ON_MATCH_SET @@> Clause.ON_MATCH_SET state (newState, stepAbove)
+                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> Clause.OPTIONAL_MATCH state (newState, stepAbove)
+                    | Basic <@@ this.ORDER_BY @@> Clause.ORDER_BY state (newState, stepAbove)
+                    | Return <@@ this.RETURN @@> Clause.RETURN state (newState, stepAbove)
+                    | Return <@@ this.RETURN_DISTINCT @@> Clause.RETURN_DISTINCT state (newState, stepAbove)
+                    | WhereSet <@@ this.SET @@> Clause.SET state (newState, stepAbove)
+                    | Basic <@@ this.SKIP @@> Clause.SKIP state (newState, stepAbove)
+                    | NoStatement <@@ this.UNION @@> Clause.UNION state (newState, stepAbove)
+                    | NoStatement <@@ this.UNION_ALL @@> Clause.UNION_ALL state (newState, stepAbove)
+                    | Unwind <@@ this.UNWIND @@> Clause.UNWIND state (newState, stepAbove)
+                    | WhereSet <@@ this.WHERE @@> Clause.WHERE state (newState, stepAbove)
+                    | Basic <@@ this.WITH @@> Clause.WITH state (newState, stepAbove) -> inner newState stepAbove
+                    //| ForEachStatement thisStep -> 
+                    //    buildForEach thisStep |> ignore
+                    //    state
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
-                inner StepBuilder.Init expr
+                inner StepBuilder.InitMainClause expr
 
             let stepBuilder = buildQry expr.Raw
 
