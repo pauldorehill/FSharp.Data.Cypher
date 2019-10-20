@@ -130,6 +130,7 @@ type private CypherStep(clause : Clause, statement : string, rawStatement : stri
 
 [<Sealed; NoComparison; NoEquality>]
 type private StepBuilder (serializer : Serializer) =
+    let mutable prmCount = 0
     let mutable prms : ParameterList = []
     let mutable steps : CypherStep list = []
     let parameterizedSb = Text.StringBuilder()
@@ -155,7 +156,8 @@ type private StepBuilder (serializer : Serializer) =
         | _ -> string o
     
     let add (o : obj option) =
-        let key = "p" + prms.Length.ToString("x2")
+        let key = "p" + prmCount.ToString("x2")
+        prmCount <- prmCount + 1
         addParamterized StepBuilder.KeySymbol
         addParamterized key
             
