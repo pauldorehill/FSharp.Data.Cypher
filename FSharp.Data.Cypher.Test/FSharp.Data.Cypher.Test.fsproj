@@ -15,6 +15,7 @@
     <Compile Include="As.fs" />
     <Compile Include="ForEach.fs" />
     <Compile Include="Unwind.fs" />
+    <Compile Include="GraphDomains.fs" />
     <Compile Include="MovieGraph.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>

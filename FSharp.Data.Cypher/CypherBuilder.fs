@@ -10,40 +10,10 @@ open FSharp.Quotations.ExprShape
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
-module ClauseNames =
-
-    let [<Literal>] ASC = "ASC"
-    let [<Literal>] CREATE = "CREATE"
-    let [<Literal>] DELETE = "DELETE"
-    let [<Literal>] DESC = "DESC"
-    let [<Literal>] DETACH_DELETE = "DETACH_DELETE"
-    let [<Literal>] FOREACH = "FOREACH"
-    let [<Literal>] LIMIT = "LIMIT"
-    let [<Literal>] MATCH = "MATCH"
-    let [<Literal>] MERGE = "MERGE"
-    let [<Literal>] ON_CREATE_SET = "ON_CREATE_SET" // Currently only works with SET
-    let [<Literal>] ON_MATCH_SET = "ON_MATCH_SET" // Currently only works with SET
-    let [<Literal>] OPTIONAL_MATCH = "OPTIONAL_MATCH"
-    let [<Literal>] ORDER_BY = "ORDER_BY"
-    let [<Literal>] RETURN = "RETURN"
-    let [<Literal>] RETURN_DISTINCT = "RETURN_DISTINCT"
-    let [<Literal>] SET = "SET"
-    let [<Literal>] SKIP = "SKIP"
-    let [<Literal>] UNION = "UNION"
-    let [<Literal>] UNION_ALL = "UNION_ALL"
-    let [<Literal>] UNWIND = "UNWIND"
-    let [<Literal>] WHERE = "WHERE"
-    let [<Literal>] WITH = "WITH"
-
-    // TODO - here for write/read check completeness
-    let [<Literal>] REMOVE = "REMOVE"
-    let [<Literal>] CALL = "CALL"
-    let [<Literal>] YIELD = "YIELD"
-
-    // let [<Literal>] CASE = "CASE"  //WHEN //THEN //ELSE //END
-
+[<RequireQualifiedAccess>]
 type Clause =
     | ASC
+    | CALL
     | CREATE
     | DELETE
     | DESC
@@ -66,43 +36,40 @@ type Clause =
     | UNWIND
     | WHERE
     | WITH
+    | YIELD
     override this.ToString() =
         match this with
-        | ASC -> ClauseNames.ASC
-        | CREATE -> ClauseNames.CREATE
-        | DELETE -> ClauseNames.DELETE
-        | DESC -> ClauseNames.DESC
-        | DETACH_DELETE -> ClauseNames.DETACH_DELETE
-        | FOREACH -> ClauseNames.FOREACH
-        | LIMIT -> ClauseNames.LIMIT
-        | MATCH -> ClauseNames.MATCH
-        | MERGE -> ClauseNames.MERGE
-        | ON_CREATE_SET -> ClauseNames.ON_CREATE_SET
-        | ON_MATCH_SET -> ClauseNames.ON_MATCH_SET
-        | OPTIONAL_MATCH -> ClauseNames.OPTIONAL_MATCH
-        | ORDER_BY -> ClauseNames.ORDER_BY
-        | REMOVE -> ClauseNames.REMOVE
-        | RETURN -> ClauseNames.RETURN
-        | RETURN_DISTINCT -> ClauseNames.RETURN_DISTINCT
-        | SET -> ClauseNames.SET
-        | SKIP -> ClauseNames.SKIP
-        | UNION -> ClauseNames.UNION
-        | UNION_ALL ->ClauseNames.UNION_ALL
-        | UNWIND ->ClauseNames.UNWIND
-        | WHERE -> ClauseNames.WHERE
-        | WITH -> ClauseNames.WITH
-        |> fun s -> s.Replace("_", " ")
+        | ASC -> "ASC"
+        | CALL -> "CALL"
+        | CREATE -> "CREATE"
+        | DELETE -> "DELETE"
+        | DESC -> "DESC"
+        | DETACH_DELETE -> "DETACH DELETE"
+        | FOREACH -> "FOREACH"
+        | LIMIT -> "LIMIT"
+        | MATCH -> "MATCH"
+        | MERGE -> "MERGE"
+        | ON_CREATE_SET -> "ON CREATE SET"
+        | ON_MATCH_SET -> "ON MATCH SET"
+        | OPTIONAL_MATCH -> "OPTIONAL MATCH"
+        | ORDER_BY -> "ORDER BY"
+        | REMOVE -> "REMOVE"
+        | RETURN -> "RETURN"
+        | RETURN_DISTINCT -> "RETURN DISTINCT"
+        | SET -> "SET"
+        | SKIP -> "SKIP"
+        | UNION -> "UNION"
+        | UNION_ALL ->"UNION ALL"
+        | UNWIND ->"UNWIND"
+        | WHERE -> "WHERE"
+        | WITH -> "WITH"
+        | YIELD -> "YIELD"
 
     member this.IsWrite =
         match this with
-        | CREATE | DELETE | DETACH_DELETE 
-        | FOREACH | MERGE | ON_CREATE_SET 
-        | ON_MATCH_SET | REMOVE | SET -> true
-        | ASC | DESC | LIMIT 
-        | MATCH | OPTIONAL_MATCH | ORDER_BY 
-        | RETURN | RETURN_DISTINCT | SKIP 
-        | UNION | UNION_ALL | UNWIND 
-        | WHERE | WITH -> false
+        | CREATE | DELETE | DETACH_DELETE | FOREACH 
+        | MERGE | ON_CREATE_SET | ON_MATCH_SET | REMOVE | SET -> true
+        | _  -> false
 
     member this.IsRead = not (this.IsWrite)
 
@@ -255,25 +222,25 @@ type private StatementBuilder(clause: Clause, stepBuilder : StepBuilder) =
         addNonParamterized stmt
         addParamterized stmt
 
-    static member JoinTuple action (stmBuilder : StatementBuilder) i v = 
+    static member JoinTuple action (stmBuilder : StatementBuilder) i v =
         if i <> 0 then stmBuilder.AddStatement ", "
         action v
 
     member this.Build = CypherStep(this.Clause, string parameterizedSb, string nonParameterizedSb, prms)
 
 [<NoComparison; NoEquality>]
-type AS<'T>() = 
+type AS<'T>() =
     member _.AS (x : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
     member _.Value : 'T = invalidOp "AS.Value should never be called"
 
 module AggregatingFunctions =
-    
+
     let inline count (x : 'T) = AS<int64>()
-    
+
     let inline collect (x : 'T) = AS<'T list>()
 
 module private  Helpers =
-    
+
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ]) -> QuotationEvaluator.EvaluateUntyped expr
@@ -343,15 +310,15 @@ module private  Helpers =
 
         let functionMatcher (expr : Expr) =
             match expr with
-            | Functions "count" fStatement 
+            | Functions "count" fStatement
             | Functions "collect" fStatement -> fStatement
             | _ -> invalidOp (sprintf "AS, unmatched function: %A" expr)
 
         match expr with
-        | Call (Some expr, mi, [ Var v ]) 
+        | Call (Some expr, mi, [ Var v ])
             when mi.Name = "AS"
             && mi.DeclaringType.IsGenericType
-            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> -> 
+            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> ->
                 let fStatement stmBuilder =
                     functionMatcher expr stmBuilder
                     stmBuilder.AddStatement " AS "
@@ -394,7 +361,7 @@ module private BasicClause =
         stepState.Add stmBuilder.Build
 
 module private UnwindClause =
-    
+
     open Helpers
 
     let make (stepState : StepBuilder) clause (expr : Expr) =
@@ -732,25 +699,25 @@ module private ReturnClause =
 
         let maker (expr : Expr) =
             match expr with
-            | Value (o, typ) -> 
+            | Value (o, typ) ->
                 let key = StatementBuilder.KeySymbol + stmBuilder.AddTypeRtnKey o
                 key, typ
-            | Var v -> 
+            | Var v ->
                 stmBuilder.AddStatement v.Name
                 v.Name, v.Type
-            | PropertyGet (Some (Var v), pi, _) -> 
+            | PropertyGet (Some (Var v), pi, _) ->
                 stmBuilder.AddStatement v.Name
                 stmBuilder.AddStatement "."
                 stmBuilder.AddStatement pi.Name
                 v.Name + "." + pi.Name, pi.PropertyType
-            | PropertyGet (None, pi, []) -> 
+            | PropertyGet (None, pi, []) ->
                 stmBuilder.AddStatement pi.Name
                 pi.Name, pi.PropertyType
-            | AS (v, fStatement) -> 
+            | AS (v, fStatement) ->
                 fStatement stmBuilder
                 v.Name, v.Type.GenericTypeArguments.[0]
             | _ ->  invalidOp (sprintf "RETURN. Couldn't match expression: %A" expr)
-                
+
 
         let rec inner (expr : Expr) =
             match expr with
@@ -763,14 +730,14 @@ module private ReturnClause =
             | _ -> sprintf "RETURN. Unrecognized expression: %A" expr |> invalidOp
 
         let result = inner expr // Must run, otherwise never builds RETURN
-        let continuation (di : Generic.IReadOnlyDictionary<string,obj>) = 
+        let continuation (di : Generic.IReadOnlyDictionary<string,obj>) =
             match result with
             | Choice1Of2 keyTyp -> Deserialization.deserialize di keyTyp
             | Choice2Of2 keyTyps ->
                 keyTyps
                 |> List.map (Deserialization.deserialize di)
                 |> Expr.NewTuple
-            |> Expr.Cast<'T> 
+            |> Expr.Cast<'T>
             |> QuotationEvaluator.Evaluate
 
         stepState.Add stmBuilder.Build, continuation
@@ -783,132 +750,145 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
-    
+
     [<NoComparison; NoEquality>]
     type ForEachQuery<'T> = private | FEQ
 
-    // FOR EACH Supports the following commands : CREATE, MERGE, DELETE, FOREACH
-    type ForEach () =    
-        
-        [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
+    /// <a href="https://neo4j.com/docs/cypher-manual/3.5/clauses/foreach/">FOREACH<a/> Supports the following commands:
+    /////
+
+    /// <summary>Supports the following commands:
+    /// <para>CREATE, DELETE, FOREACH, MERGE, SET</para>
+    /// </summary>
+
+    /// <summary>
+    ///     Retrieves information about the specified window.
+    ///     The function also retrieves the value at a specified offset into the extra window memory.
+    ///     From <see cref="!:https://msdn.microsoft.com/en-us/library/windows/desktop/ms633585(v=vs.85).aspx">this</see> MSDN-Link.
+    ///     AHref <a href="http://stackoverflow.com">here</a>.
+    ///     see-href <see href="http://stackoverflow.com">here</see>.
+    /// </summary>
+    type ForEach () =
+
+        [<CustomOperation(nameof Clause.CREATE, MaintainsVariableSpace = true)>]
         member _.CREATE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : ForEachQuery<'T> = FEQ
-        
-        [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.DELETE, MaintainsVariableSpace = true)>]
         member _.DELETE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Delete) : ForEachQuery<'T> = FEQ
-        
-        [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.DETACH_DELETE, MaintainsVariableSpace = true)>]
         member _.DETACH_DELETE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Delete) : ForEachQuery<'T> = FEQ
 
-        [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.MERGE, MaintainsVariableSpace = true)>]
         member _.MERGE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : ForEachQuery<'T> = FEQ
 
-        [<CustomOperation(ClauseNames.ON_CREATE_SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.ON_CREATE_SET, MaintainsVariableSpace = true)>]
         member _.ON_CREATE_SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
-        [<CustomOperation(ClauseNames.ON_MATCH_SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.ON_MATCH_SET, MaintainsVariableSpace = true)>]
         member _.ON_MATCH_SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
-        [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.SET, MaintainsVariableSpace = true)>]
         member _.SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
 
         member _.Yield (source : 'T) : ForEachQuery<'T> = FEQ
-        
-        member _.Zero () : ForEachQuery<'T> = FEQ
-        
-        member _.For (source : Node<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-        
-        member _.For (source : Rel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-        
+
+        member _.Zero (()) :ForEachQuery<'T> = FEQ
+
         member _.For (source : ForEachQuery<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-        
+
+        member _.For (source : IFSNode<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+
+        member _.For (source : IFSRel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+
         member this.Run x : unit = ()
 
     let FOREACH = ForEach()
-    
+
     [<NoComparison; NoEquality>]
     type Query<'T,'Result> = private | Q
 
     type CypherBuilder () =
-        
-        [<CustomOperation(ClauseNames.ASC, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.ASC, MaintainsVariableSpace = true)>]
         member _.ASC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.CREATE, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.CREATE, MaintainsVariableSpace = true)>]
         member _.CREATE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.DELETE, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.DELETE, MaintainsVariableSpace = true)>]
         member _.DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.DESC, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.DESC, MaintainsVariableSpace = true)>]
         member _.DESC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.DETACH_DELETE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.DETACH_DELETE, MaintainsVariableSpace = true)>]
         member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.LIMIT, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.LIMIT, MaintainsVariableSpace = true)>]
         member _.LIMIT (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.MATCH, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.MATCH, MaintainsVariableSpace = true)>]
         member _.MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.MERGE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.MERGE, MaintainsVariableSpace = true)>]
         member _.MERGE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.ON_CREATE_SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.ON_CREATE_SET, MaintainsVariableSpace = true)>]
         member _.ON_CREATE_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.ON_MATCH_SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.ON_MATCH_SET, MaintainsVariableSpace = true)>]
         member _.ON_MATCH_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
         // TODO: Look at how to handle the possiblitly of getting null into a result set
         // or passing option types into the Node<'T>
         /// Note this can return null
-        [<CustomOperation(ClauseNames.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
         member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
         // TODO: Can't get the intellisense here by adding in the types as it causes some issues
-        [<CustomOperation(ClauseNames.ORDER_BY, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.ORDER_BY, MaintainsVariableSpace = true)>]
         member _.ORDER_BY (source : Query<'T,'Result>, [<ProjectionParameter>] f : 'T -> 'Key) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.RETURN, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.RETURN, MaintainsVariableSpace = true)>]
         member _.RETURN (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = Q
 
-        [<CustomOperation(ClauseNames.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.RETURN_DISTINCT, MaintainsVariableSpace = true)>]
         member _.RETURN_DISTINCT (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = Q
 
-        [<CustomOperation(ClauseNames.SET, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.SET, MaintainsVariableSpace = true)>]
         member _.SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.SKIP, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.SKIP, MaintainsVariableSpace = true)>]
         member _.SKIP (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.UNION, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.UNION, MaintainsVariableSpace = true)>]
         member _.UNION (source : Query<'T,'Result>) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.UNION_ALL, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.UNION_ALL, MaintainsVariableSpace = true)>]
         member _.UNION_ALL (source : Query<'T,'Result>) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.UNWIND, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.UNWIND, MaintainsVariableSpace = true)>]
         member _.UNWIND (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'AS list) : Query<'T,'Result> = Q
 
-        [<CustomOperation(ClauseNames.WHERE, MaintainsVariableSpace = true)>]
+        [<CustomOperation(nameof Clause.WHERE, MaintainsVariableSpace = true)>]
         member _.WHERE (source : Query<'T,'Result>, [<ProjectionParameter>] predicate : 'T -> bool) : Query<'T,'Result> = Q
-        
-        [<CustomOperation(ClauseNames.WITH, MaintainsVariableSpace = true)>]
+
+        [<CustomOperation(nameof Clause.WITH, MaintainsVariableSpace = true)>]
         member _.WITH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'With) : Query<'T,'Result> = Q
 
         member _.Yield (source : 'T) : Query<'T,unit> = Q
-        
+
         member _.Zero () : Query<'T,unit> = Q
-        
+
         member _.For (source : Query<'T,'Result>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
-        
-        member _.For (source : Node<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
-        
-        member _.For (source : Rel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
+
+        member _.For (source : IFSNode<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
+
+        member _.For (source : IFSRel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
         member _.Quote (query : Expr<Query<'T,'Result>>) = Q
-        
+
         member this.Run (expr : Expr<Query<'T,'Result>>) =
             // TODO: This is a bit rough and ready
             let varDic =
@@ -977,9 +957,9 @@ module CypherBuilder =
 
             let (|ForEachStatement|_|) (expr : Expr) =
                 match expr with
-                | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> -> 
+                | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> ->
                     printfn "%A" forEachExpr
-                    
+
                     invalidOp "FOREACH is not ready"
                 | _ -> None
 
@@ -989,27 +969,27 @@ module CypherBuilder =
                     | SpecificCall <@@ this.Yield @@> _ -> state
                     | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" -> inner state thisStep
                     | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
-                    | NoStatement <@@ this.ASC @@> ASC state inner stepList
-                    | MatchCreateMerge <@@ this.CREATE @@> CREATE state inner stepList
-                    | Basic <@@ this.DELETE @@> DELETE state inner stepList
-                    | NoStatement <@@ this.DESC @@> DESC state inner stepList
-                    | Basic <@@ this.DETACH_DELETE @@> DETACH_DELETE state inner stepList
-                    | Basic <@@ this.LIMIT @@> LIMIT state inner stepList
-                    | MatchCreateMerge <@@ this.MATCH @@> MATCH state inner stepList
-                    | MatchCreateMerge <@@ this.MERGE @@> MERGE state inner stepList
-                    | WhereSet <@@ this.ON_CREATE_SET @@> ON_CREATE_SET state inner stepList
-                    | WhereSet <@@ this.ON_MATCH_SET @@> ON_MATCH_SET state inner stepList
-                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> OPTIONAL_MATCH state inner stepList
-                    | Basic <@@ this.ORDER_BY @@> ORDER_BY state inner stepList
-                    | Return <@@ this.RETURN @@> RETURN state inner stepList
-                    | Return <@@ this.RETURN_DISTINCT @@> RETURN_DISTINCT state inner stepList
-                    | WhereSet <@@ this.SET @@> SET state inner stepList
-                    | Basic <@@ this.SKIP @@> SKIP state inner stepList
-                    | NoStatement <@@ this.UNION @@> UNION state inner stepList
-                    | NoStatement <@@ this.UNION_ALL @@> UNION_ALL state inner stepList
-                    | Unwind <@@ this.UNWIND @@> UNWIND state inner stepList
-                    | WhereSet <@@ this.WHERE @@> WHERE state inner stepList
-                    | Basic <@@ this.WITH @@> WITH state inner stepList -> stepList
+                    | NoStatement <@@ this.ASC @@> Clause.ASC state inner stepList
+                    | MatchCreateMerge <@@ this.CREATE @@> Clause.CREATE state inner stepList
+                    | Basic <@@ this.DELETE @@> Clause.DELETE state inner stepList
+                    | NoStatement <@@ this.DESC @@> Clause.DESC state inner stepList
+                    | Basic <@@ this.DETACH_DELETE @@> Clause.DETACH_DELETE state inner stepList
+                    | Basic <@@ this.LIMIT @@> Clause.LIMIT state inner stepList
+                    | MatchCreateMerge <@@ this.MATCH @@> Clause.MATCH state inner stepList
+                    | MatchCreateMerge <@@ this.MERGE @@> Clause.MERGE state inner stepList
+                    | WhereSet <@@ this.ON_CREATE_SET @@> Clause.ON_CREATE_SET state inner stepList
+                    | WhereSet <@@ this.ON_MATCH_SET @@> Clause.ON_MATCH_SET state inner stepList
+                    | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> Clause.OPTIONAL_MATCH state inner stepList
+                    | Basic <@@ this.ORDER_BY @@> Clause.ORDER_BY state inner stepList
+                    | Return <@@ this.RETURN @@> Clause.RETURN state inner stepList
+                    | Return <@@ this.RETURN_DISTINCT @@> Clause.RETURN_DISTINCT state inner stepList
+                    | WhereSet <@@ this.SET @@> Clause.SET state inner stepList
+                    | Basic <@@ this.SKIP @@> Clause.SKIP state inner stepList
+                    | NoStatement <@@ this.UNION @@> Clause.UNION state inner stepList
+                    | NoStatement <@@ this.UNION_ALL @@> Clause.UNION_ALL state inner stepList
+                    | Unwind <@@ this.UNWIND @@> Clause.UNWIND state inner stepList
+                    | WhereSet <@@ this.WHERE @@> Clause.WHERE state inner stepList
+                    | Basic <@@ this.WITH @@> Clause.WITH state inner stepList -> stepList
                     | ForEachStatement -> state
                     | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp
 
