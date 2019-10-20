@@ -12,8 +12,9 @@ module ``Can build`` =
     [<Fact>]
     let ``Basic statement`` () =
         cypher {
-            //for node in Graph.NodeOfType do
-            FOREACH { () }
+            for outerNodes in Graph.NodeOfType do
+            MATCH (Node outerNodes)
+            FOREACH { for innerNode in outerNodes do SET (innerNode.IntValue = 5) }
         }
         |> Cypher.rawQuery
-        |> fun q -> Assert.Equal("FOREACH ", q)
+        |> fun q -> Assert.Equal("MATCH (outerNodes) FOREACH (innerNode IN outerNodes | SET innerNode.IntValue = 5)", q)

@@ -19,12 +19,12 @@ module ``Can build`` =
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)
     
-    [<Fact>]
-    let ``From list creation`` () =
-        cypher {
-            for node in Graph.NodeOfType do
-            let myVar = AS<NodeType list>()
-            UNWIND ([ 1 .. 2 ])
-        }
-        |> Cypher.rawQuery
-        |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)
+    //[<Fact>]
+    //let ``From list creation`` () =
+    //    cypher {
+    //        for node in Graph.NodeOfType do
+    //        let myVar = AS<NodeType list>()
+    //        UNWIND ([ 1 .. 2 ])
+    //    }
+    //    |> Cypher.rawQuery
+    //    |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)

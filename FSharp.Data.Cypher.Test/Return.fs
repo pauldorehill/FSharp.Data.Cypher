@@ -116,12 +116,12 @@ module ``Deserialize: Spoofed Results`` =
         |> Generic.Dictionary
 
     let spoofDicAll =  
-        [ "$step1param1", box true
-          "$step1param2", box false
-          "$step1param3", box 5L // DB returns int64
-          "$step1param4", box 7L
-          "$step1param5", box 5.5
-          "$step1param6", box "EMU" ]
+        [ "$p01", box true
+          "$p02", box false
+          "$p03", box 5L // DB returns int64
+          "$p04", box 7L
+          "$p05", box 5.5
+          "$p06", box "EMU" ]
         |> makeDic
 
     let fTupleOfAll f = 
@@ -131,12 +131,12 @@ module ``Deserialize: Spoofed Results`` =
         |> f
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
     
-    let [<Fact>] ``Bool true`` () = fBoolTrue (makeDic [ "$step1param1", box true ] |> Cypher.spoof)
-    let [<Fact>] ``Bool false`` () = fBoolFalse (makeDic [ "$step1param1", box false ] |> Cypher.spoof)
-    let [<Fact>] ``int32`` () = fInt32 (makeDic [ "$step1param1", box 5L ] |> Cypher.spoof)
-    let [<Fact>] ``int64`` () = fInt64 (makeDic [ "$step1param1", box 7L ] |> Cypher.spoof)
-    let [<Fact>] ``float`` () = fFloat (makeDic [ "$step1param1", box 5.5 ] |> Cypher.spoof)
-    let [<Fact>] ``string`` () = fString (makeDic [ "$step1param1", box "EMU" ] |> Cypher.spoof)
+    let [<Fact>] ``Bool true`` () = fBoolTrue (makeDic [ "$p01", box true ] |> Cypher.spoof)
+    let [<Fact>] ``Bool false`` () = fBoolFalse (makeDic [ "$p01", box false ] |> Cypher.spoof)
+    let [<Fact>] ``int32`` () = fInt32 (makeDic [ "$p01", box 5L ] |> Cypher.spoof)
+    let [<Fact>] ``int64`` () = fInt64 (makeDic [ "$p01", box 7L ] |> Cypher.spoof)
+    let [<Fact>] ``float`` () = fFloat (makeDic [ "$p01", box 5.5 ] |> Cypher.spoof)
+    let [<Fact>] ``string`` () = fString (makeDic [ "$p01", box "EMU" ] |> Cypher.spoof)
     let [<Fact>] ``tuple of all`` () = fTupleOfAll (Cypher.spoof spoofDicAll)
     
 module ``All allowed Types on a Record`` =

@@ -168,7 +168,7 @@ module Node =
 
             let rtnSt = "MATCH (node)"
             let rtnStRaw = """MATCH ({StringValue: "NewStringValue", IntValue: 3, FloatValue: 2.1})"""
-            let rtnStParams = """MATCH ({StringValue: $step1param1, IntValue: $step1param2, FloatValue: $step1param3})"""
+            let rtnStParams = """MATCH ({StringValue: $p01, IntValue: $p02, FloatValue: $p03})"""
             
             // Quotations can't contain object expressions
             // so use a graph for binding test
@@ -232,7 +232,7 @@ module Node =
                     MATCH (Node({ node with FloatValue = 2.1 }))
                 }
                 |> Cypher.query
-                |> fun q -> Assert.Equal("""MATCH ({FloatValue: $step1param1})""", q)
+                |> fun q -> Assert.Equal("""MATCH ({FloatValue: $p01})""", q)
 
     module ``Two Parameter Constructor`` =
 
