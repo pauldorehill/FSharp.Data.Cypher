@@ -136,17 +136,22 @@ type private StepBuilder =
 
     member this.Steps =
         match this with
-        | ForEachClause (_, stepNo, steps)
-        | MainClause (stepNo, steps) -> steps
+        | MainClause (stepNo, steps)
+        | ForEachClause (_, stepNo, steps) -> steps
+    
+    member this.StepNo =
+        match this with
+        | MainClause (stepNo, steps)
+        | ForEachClause (_, stepNo, steps) -> stepNo
 
     member this.Add (step : CypherStep) = 
         match this with
-        | ForEachClause (outerStepNo, stepNo, steps) -> ForEachClause (outerStepNo, stepNo + 1, step :: steps)
         | MainClause  (stepNo, steps) -> MainClause (stepNo + 1, step :: steps)
+        | ForEachClause (outerStepNo, stepNo, steps) -> ForEachClause (outerStepNo, stepNo + 1, step :: steps)
     
     static member InitMainClause = MainClause(1, [])
 
-    static member InitForEachClause = MainClause(1, [])
+    static member InitForEachClause (stepBuilder : StepBuilder) = ForEachClause (stepBuilder.StepNo, 1, [])
 
     member this.Build (continuation : ReturnContination<'T> option) =
         let sb = Text.StringBuilder()
@@ -964,33 +969,33 @@ module CypherBuilder =
                     Some (state, stepAbove)
                 | _ -> None
 
-            let buildForEach (expr : Expr) =
-                
-                let rec inner (state : StepBuilder) (expr : Expr) =
-                    match expr with
-                    | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
-                    | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
-                    | SpecificCall <@@ FOREACH.Yield @@> _ 
-                    | SpecificCall <@@ FOREACH.Zero @@> _ -> state
-                    | Call (_, mi, _) when mi.Name = "For" -> state
-                    | MatchCreateMerge <@@ FOREACH.CREATE @@> Clause.CREATE state (newState, stepAbove)
-                    | Basic <@@ FOREACH.DELETE @@> Clause.DELETE state (newState, stepAbove)
-                    | Basic <@@ FOREACH.DETACH_DELETE @@> Clause.DETACH_DELETE state (newState, stepAbove)
-                    | MatchCreateMerge <@@ FOREACH.MERGE @@> Clause.MERGE state (newState, stepAbove)
-                    | WhereSet <@@ FOREACH.ON_CREATE_SET @@> Clause.ON_CREATE_SET state (newState, stepAbove)
-                    | WhereSet <@@ FOREACH.ON_MATCH_SET @@> Clause.ON_MATCH_SET state (newState, stepAbove)
-                    | WhereSet <@@ FOREACH.SET @@> Clause.SET state (newState, stepAbove) -> inner newState stepAbove
-                    | _ -> invalidOp (sprintf "%A" expr)
+            let (|ForEachStatement|_|) (stepBuilder : StepBuilder) (expr : Expr) =
+                let buildForEach (expr : Expr) =
+                    let rec inner (state : StepBuilder) (expr : Expr) =
+                        match expr with
+                        | SpecificCall <@@ FOREACH.Run @@> (_, _, [ expr ]) // Always called first
+                        | QuoteTyped expr | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
+                        | SpecificCall <@@ FOREACH.Yield @@> _ 
+                        | SpecificCall <@@ FOREACH.Zero @@> _ -> state
+                        | Call (_, mi, _) when mi.Name = "For" -> 
+                            let stmBuilder = StatementBuilder(Clause.FOREACH, state)
+                            //stmBuilder.
+                            state.Add stmBuilder.Build
+                        | MatchCreateMerge <@@ FOREACH.CREATE @@> Clause.CREATE state (newState, stepAbove)
+                        | Basic <@@ FOREACH.DELETE @@> Clause.DELETE state (newState, stepAbove)
+                        | Basic <@@ FOREACH.DETACH_DELETE @@> Clause.DETACH_DELETE state (newState, stepAbove)
+                        | MatchCreateMerge <@@ FOREACH.MERGE @@> Clause.MERGE state (newState, stepAbove)
+                        | WhereSet <@@ FOREACH.ON_CREATE_SET @@> Clause.ON_CREATE_SET state (newState, stepAbove)
+                        | WhereSet <@@ FOREACH.ON_MATCH_SET @@> Clause.ON_MATCH_SET state (newState, stepAbove)
+                        | WhereSet <@@ FOREACH.SET @@> Clause.SET state (newState, stepAbove) -> inner newState stepAbove
+                        | _ -> invalidOp (sprintf "%A" expr)
 
-                let state = inner StepBuilder.InitForEachClause expr
-                let cypher = state.Build None
-                cypher
+                    inner (StepBuilder.InitForEachClause stepBuilder) expr
 
-            let (|ForEachStatement|_|) (expr : Expr) =
                 let rec inner expr =
                     match expr with
                     | Let (_, _, expr) | Lambda (_, expr) -> inner expr
-                    | Sequential (Application (Lambda (var, forEachExpr) , _) , _) when var.Type = typeof<ForEach> -> Some forEachExpr
+                    | Sequential (Application (Lambda (var, expr) , _) , _) when var.Type = typeof<ForEach> -> Some (buildForEach expr)
                     | _ -> None
 
                 inner expr
@@ -999,9 +1004,7 @@ module CypherBuilder =
                 let rec inner (state : StepBuilder) (expr : Expr) =
                     match expr with
                     | SpecificCall <@@ this.Yield @@> _ -> state
-                    | Call (_, mi, [ stepAbove; ForEachStatement thisStep ]) when mi.Name = "For" ->
-                        let newState = buildForEach thisStep
-                        inner state stepAbove
+                    | Call (_, mi, [ stepAbove; ForEachStatement state newState ]) when mi.Name = "For" ->  inner newState stepAbove
                     | Call (_, mi, _) when mi.Name = "For" -> state
                     | Let (_, _, expr) | Lambda (_, expr) -> inner state expr
                     | NoStatement <@@ this.ASC @@> Clause.ASC state (newState, stepAbove)
