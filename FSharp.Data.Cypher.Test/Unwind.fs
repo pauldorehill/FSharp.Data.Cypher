@@ -1,9 +1,9 @@
 ﻿namespace FSharp.Data.Cypher.Test.UNWIND
 open System
 open FSharp.Data.Cypher
+open FSharp.Data.Cypher.Functions
+open Aggregating
 open Xunit
-
-open AggregatingFunctions
 
 module ``Can build`` =
 

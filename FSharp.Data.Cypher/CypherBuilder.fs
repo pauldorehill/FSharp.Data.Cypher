@@ -180,33 +180,30 @@ type private StepBuilder (serializer : Serializer) =
         let sb = Text.StringBuilder()
         let makeQuery (paramterized : bool) (multiline : bool) =
             let add (s : string) = sb.Append s |> ignore
-            let total = steps.Length
             let mutable count : int = 1
             let mutable isForEach = false
             let mutable padding = Text.StringBuilder()
+            let pad() =
+                isForEach <- true
+                padding <- padding.Append "    "
+            let unPad() =
+                isForEach <- false
+                padding <- padding.Remove(0, 4)
 
             for step in steps do
                 add (string padding)
                 add (string step.Clause)
 
-                if multiline && step.Clause = Clause.FOREACH then
-                    isForEach <- true
-                    padding <- padding.Append "    "
+                if multiline && step.Clause = Clause.FOREACH then pad()
 
                 if step.Statement <> "" then
                     add " "
-                    if paramterized
-                    then add step.Statement
-                    else add step.RawStatement
+                    if paramterized then add step.Statement else add step.RawStatement
 
-                if multiline && isForEach && step.RawStatement.EndsWith ")" then
-                    isForEach <- false
-                    padding <- padding.Remove(0, 4)
+                if multiline && isForEach && step.RawStatement.EndsWith ")" then unPad()
 
-                if count < total then
-                    if multiline
-                    then add Environment.NewLine
-                    else add " "
+                if count < steps.Length then
+                    if multiline then add Environment.NewLine else add " "
 
                 count <- count + 1
 
@@ -245,18 +242,9 @@ type private StepBuilder (serializer : Serializer) =
         prms <- []
         steps <- step :: steps
 
-[<NoComparison; NoEquality>]
-type AS<'T>() =
-    member _.AS (x : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
-    member _.Value : 'T = invalidOp "AS.Value should never be called"
-
-module AggregatingFunctions =
-
-    let inline count (x : 'T) = AS<int64>()
-
-    let inline collect (x : 'T) = AS<'T list>()
-
 module private  Helpers =
+    
+    open FSharp.Data.Cypher.Functions
 
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
@@ -279,9 +267,8 @@ module private  Helpers =
                 | _ ->
                     // In this case the obj is actually Node<'N> or Rel<'R>
                     // so will need to create an instance of it and call the static member
-                    if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj
-                    then
-                        TypeHelpers.createNullRecordOrClass var.Type
+                    if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj then
+                        TypeHelpers.createNullRecordOrClass var.Type 
                         |> pi.GetValue
                     else varObj
 
@@ -457,7 +444,8 @@ module private MatchClause =
         let makePathHops (expr : Expr) =
 
             let makeStatement startValue endValue =
-                if endValue = UInt32.MaxValue then sprintf "*%i.." startValue
+                if endValue = UInt32.MaxValue 
+                then sprintf "*%i.." startValue
                 else sprintf "*%i..%i" startValue endValue
 
             let makeListRng xs = List.min xs, List.max xs
@@ -602,45 +590,45 @@ module private MatchClause =
 
             stepBuilder.AppendStatement ")"
 
-        let (|GetConstructors|_|) fResult (typ : Type) (expr : Expr) =
+        let (|GetConstructors|_|) (typ : Type) (expr : Expr) =
             let isTyp (ci : ConstructorInfo) =
                 if ci.DeclaringType.IsGenericType
                 then ci.DeclaringType.GetGenericTypeDefinition() = typ
                 else ci.DeclaringType = typ
 
             let getParamType (pi : ParameterInfo) =
-                if pi.ParameterType.IsGenericType && (pi.ParameterType.GetGenericTypeDefinition() = typedefofIFSNode || pi.ParameterType.GetGenericTypeDefinition() = typedefofIFSRelationship)
-                then pi.ParameterType.GetGenericTypeDefinition()
+                if pi.ParameterType.IsGenericType then 
+                    let typ = pi.ParameterType.GetGenericTypeDefinition() 
+                    if typ = typedefofIFSNode || typ = typedefofIFSRelationship 
+                    then typ
+                    else pi.ParameterType
                 else pi.ParameterType
 
             match expr with
             | NewObject (ci, paramsExpr) when isTyp ci ->
-                let ctTypes =
-                    ci.GetParameters()
-                    |> Array.map getParamType
-                Some (fResult ctTypes paramsExpr)
+                let ctTypes = ci.GetParameters() |> Array.map getParamType
+                Some (ctTypes, paramsExpr)
             | _ -> None
 
-        let (|BuildJoin|_|) (operator : Operators) fResult expr =
+        let (|BuildJoin|_|) (operator : Operators) expr =
             match expr with
-            | Call (_, mi, [ left; right ]) when mi.Name = operator.Name ->
-                fResult left
-                stepBuilder.AppendStatement (string operator)
-                fResult right
-                Some ()
+            | Call (_, mi, [ left; right ]) when mi.Name = operator.Name -> Some (operator, left, right)
             | _ -> None
 
         let rec inner (expr : Expr) =
             match expr with
             | Coerce (expr, _) | Let (_, _, expr) | TupleGet (expr, _) | Lambda (_, expr) -> inner expr
-            | GetConstructors makeNode typedefofNode rtn
-            | GetConstructors makeRel typedefofRel rtn
-            | BuildJoin OpMMMM inner rtn
-            | BuildJoin OpLMMMM inner rtn
-            | BuildJoin OpMMMMG inner rtn
-            | BuildJoin OpMM inner rtn
-            | BuildJoin OpLMM inner rtn
-            | BuildJoin OpMMG inner rtn -> rtn
+            | GetConstructors typedefofNode (ctTypes, paramsExpr) -> makeNode ctTypes paramsExpr
+            | GetConstructors typedefofRel (ctTypes, paramsExpr) -> makeRel ctTypes paramsExpr
+            | BuildJoin OpMMMM (operator, left, right)
+            | BuildJoin OpLMMMM (operator, left, right)
+            | BuildJoin OpMMMMG (operator, left, right)
+            | BuildJoin OpMM (operator, left, right)
+            | BuildJoin OpLMM (operator, left, right)
+            | BuildJoin OpMMG (operator, left, right) -> 
+                inner left
+                stepBuilder.AppendStatement (string operator)
+                inner right
             | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the MATCH statement" v.Name)
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
 
@@ -752,9 +740,13 @@ module CypherBuilder =
     // Other helpful articles
     // https://stackoverflow.com/questions/23122639/how-do-i-write-a-computation-expression-builder-that-accumulates-a-value-and-als
     // https://stackoverflow.com/questions/14110532/extended-computation-expressions-without-for-in-do
+    // https://github.com/dotnet/fsharp/blob/master/src/fsharp/FSharp.Core/Query.fs
 
     [<NoComparison; NoEquality>]
     type ForEachQuery<'T> = private | FEQ
+    
+    [<NoComparison; NoEquality>]
+    type Query<'T,'Result> = private | Q
 
     /// <summary>Supports the following commands:
     /// <para>CREATE, DELETE, FOREACH, MERGE, SET</para>
@@ -798,12 +790,9 @@ module CypherBuilder =
 
     let FOREACH = ForEach()
 
-    [<NoComparison; NoEquality>]
-    type Query<'T,'Result> = private | Q
-
-    type CypherBuilder () =
-        let serializer : Serializer = Serialization.serialize
-        let deserializer : Deserializer = Deserialization.deserialize
+    type CypherBuilder (serializer, deserializer) =
+        let serializer : Serializer = Option.defaultValue Serialization.serialize serializer
+        let deserializer : Deserializer = Option.defaultValue Deserialization.deserialize deserializer
 
         [<CustomOperation(nameof Clause.ASC, MaintainsVariableSpace = true)>]
         member _.ASC (source : Query<'T,'Result>) : Query<'T,'Result> = Q
@@ -835,13 +824,11 @@ module CypherBuilder =
         [<CustomOperation(nameof Clause.ON_MATCH_SET, MaintainsVariableSpace = true)>]
         member _.ON_MATCH_SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
-        // TODO: Look at how to handle the possiblitly of getting null into a result set
-        // or passing option types into the Node<'T>
+        // TODO: Look at how to handle the possiblitly of getting null into a result set or passing option types into the Node<'T>
         /// Note this can return null
         [<CustomOperation(nameof Clause.OPTIONAL_MATCH, MaintainsVariableSpace = true)>]
         member _.OPTIONAL_MATCH (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> Node<'N>) : Query<'T,'Result> = Q
 
-        // TODO: Can't get the intellisense here by adding in the types as it causes some issues
         [<CustomOperation(nameof Clause.ORDER_BY, MaintainsVariableSpace = true)>]
         member _.ORDER_BY (source : Query<'T,'Result>, [<ProjectionParameter>] f : 'T -> 'Key) : Query<'T,'Result> = Q
 
@@ -895,7 +882,8 @@ module CypherBuilder =
                         varExp <- Some varValue
                         inner yieldEnd
                     | Let (v, e1, e2) ->
-                        if not(varDic.ContainsKey v.Name) then
+                        if not(varDic.ContainsKey v.Name) 
+                        then
                             varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
                             varExp <- None
                         inner e2
@@ -959,7 +947,7 @@ module CypherBuilder =
 
                 inner expr
 
-            // Accumulate outside of the loop
+            // Accumulate outside of the loop & mutate due to build order
             let mutable firstStatement = ""
             let mutable isFirstStatement = true
 
@@ -967,7 +955,8 @@ module CypherBuilder =
                 firstStatement <- firstStatement + ")"
                 let rec inner (expr : Expr) =
                     let moveToNext clause next =
-                        if isFirstStatement then
+                        if isFirstStatement 
+                        then
                             stepBuilder.AppendStatement firstStatement
                             isFirstStatement <- false
                         stepBuilder.FinaliseClause clause
@@ -980,10 +969,8 @@ module CypherBuilder =
                     | SpecificCall <@@ FOREACH.Yield @@> (_, _, [ expr ]) -> inner expr
                     | SpecificCall <@@ FOREACH.Zero @@> _ -> ()
                     | Var v -> stepBuilder.AppendStatement v.Name
-
                     | Call (_, mi, [ stepAbove; ForEachStatement buildForEach stepBuilder ]) when mi.Name = "For" -> inner stepAbove
                     | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" ->
-
                         stepBuilder.AppendStatement "("
                         inner thisStep
                         stepBuilder.AppendStatement " IN "
@@ -999,7 +986,6 @@ module CypherBuilder =
                     | _ -> invalidOp (sprintf "FOREACH. Unmatched Expr: %A" expr)
 
                 inner expr
-
 
             let stepBuilder = StepBuilder serializer
 
@@ -1041,4 +1027,4 @@ module CypherBuilder =
 
             stepBuilder.Build returnStatement
 
-    let cypher = CypherBuilder()
+    let cypher = CypherBuilder(None, None)

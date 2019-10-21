@@ -8,6 +8,7 @@
   <ItemGroup>
     <Compile Include="Graph.fs" />
     <Compile Include="Serialize.fs" />
+    <Compile Include="Functions.fs" />
     <Compile Include="Cypher.fs" />
     <Compile Include="CypherBuilder.fs" />
   </ItemGroup>

@@ -87,7 +87,9 @@ module Cypher =
                 let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query, makeParameters cypher)
 
                 let! statementCursor =
-                    if cypher.IsWrite then session.WriteTransactionAsync run else session.ReadTransactionAsync run
+                    if cypher.IsWrite 
+                    then session.WriteTransactionAsync run 
+                    else session.ReadTransactionAsync run
                     |> Async.AwaitTask
 
                 let! results =
@@ -129,7 +131,6 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
-
                 let! statementCursor = transaction.RunAsync(cypher.Query, makeParameters cypher) |> Async.AwaitTask
 
                 let! results =
@@ -145,9 +146,8 @@ module Cypher =
 
         let asyncRunMap (driver : IDriver) map (cypher : Cypher<'T>) =
             let session =
-                if cypher.IsWrite
-                then
-                    driver.AsyncSession(fun sc ->
+                if cypher.IsWrite then
+                    driver.AsyncSession(fun sc -> 
                         sc.DefaultAccessMode <- AccessMode.Write)
                 else
                     driver.AsyncSession(fun sc ->

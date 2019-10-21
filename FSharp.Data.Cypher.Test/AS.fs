@@ -2,8 +2,9 @@
 
 open System
 open FSharp.Data.Cypher
+open FSharp.Data.Cypher.Functions
+open Aggregating
 open Xunit
-open AggregatingFunctions
 
 module ``Can build`` =
 
@@ -12,7 +13,7 @@ module ``Can build`` =
     let rtn = sprintf "RETURN %s(node%s) AS myVar"
 
     [<Fact>]
-    let ``count`` () =
+    let ``basic count`` () =
         cypher {
             for node in Graph.NodeOfType do
             let myVar = AS<int64>()
@@ -41,3 +42,13 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal(rtn "collect" ".StringValue", q)
+
+    [<Fact>]
+    let ``sum node property`` () =
+        cypher {
+            for node in Graph.NodeOfType do
+            let myVar = AS<float>()
+            RETURN (sum(node.FloatValue) .AS myVar)
+        }
+        |> Cypher.rawQuery
+        |> fun q -> Assert.Equal(rtn "sum" ".FloatValue", q)

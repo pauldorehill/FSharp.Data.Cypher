@@ -36,9 +36,7 @@ module TypeHelpers =
         let mutable uCIFields = None
         let isSingleCase() =
             let u = FSharpType.GetUnionCases(typ, bindingFlags)
-            let fields =
-                u.[0].GetFields()
-                //|> Array.map (fun pi -> pi.Name, fun (o, o2) -> pi.SetValue(o, o2))
+            let fields = u.[0].GetFields() // Handle named fields vs Item
             if u.Length = 1 && fields.Length <= 1 then
                 uCI <- Some u.[0]
                 uCIFields <- Some fields
@@ -57,8 +55,8 @@ module TypeHelpers =
 
         elif not(FSharpType.IsUnion(typ, bindingFlags)) && (typ.IsClass || typ.IsValueType) then
             let ctrs = typ.GetConstructors bindingFlags
-            if ctrs.Length = 0 then
-                invalidOp (sprintf "You must define a parameterless constructor for Class of type %s" typ.Name)
+            if ctrs.Length = 0 
+            then invalidOp (sprintf "You must define a parameterless constructor for Class of type %s" typ.Name)
             else
                 let classMaker =
                     ctrs
@@ -91,10 +89,8 @@ module Deserialization =
     // Driver returns a System.Collections.Generic.List`1[System.Object]
     let private checkCollection<'T> (rtnObj : obj) =
         if isNull rtnObj then Seq.empty
-        elif rtnObj.GetType() = typeof<ResizeArray<obj>> then
-            rtnObj :?> ResizeArray<obj> |> Seq.cast<'T>
-        else
-            rtnObj :?> 'T |> Seq.singleton
+        elif rtnObj.GetType() = typeof<ResizeArray<obj>> then rtnObj :?> ResizeArray<obj> |> Seq.cast<'T>
+        else rtnObj :?> 'T |> Seq.singleton
 
     let private makeSeq<'T> rtnObj = checkCollection<'T> rtnObj
 
@@ -181,7 +177,6 @@ module Deserialization =
             sprintf "A null IEntity (Node / Relationship) was returned from the database of expected type %s. This is likely from an OPTIONAL MATCH" rtnType.Name
             |> NullReferenceException
             |> raise
-
         else
             match rtnType with
             | Record (props, nullMaker) ->
