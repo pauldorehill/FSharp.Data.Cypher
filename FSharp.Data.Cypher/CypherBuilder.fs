@@ -89,18 +89,18 @@ type private Operators =
     | OpMMMMG
     member this.Name =
         match this with
-        | OpEqual -> "op_Equality"
-        | OpLess -> "op_LessThan"
-        | OpGreater -> "op_GreaterThan"
-        | OpNotEqual -> "op_Inequality"
-        | OpLessOrEqual -> "op_LessThanOrEqual"
-        | OpGreaterOrEqual -> "op_GreaterThanOrEqual"
-        | OpMM -> "op_MinusMinus"
-        | OpLMM -> "op_LessMinusMinus"
-        | OpMMG -> "op_MinusMinusGreater"
-        | OpMMMM -> "op_MinusMinusMinusMinus"
-        | OpLMMMM -> "op_LessMinusMinusMinusMinus"
-        | OpMMMMG -> "op_MinusMinusMinusMinusGreater"
+        | OpEqual -> nameof ( = )
+        | OpLess -> nameof ( < )
+        | OpGreater -> nameof ( > )
+        | OpNotEqual -> nameof ( <> )
+        | OpLessOrEqual -> nameof ( <= )
+        | OpGreaterOrEqual -> nameof ( >= )
+        | OpMM -> nameof ( -- )
+        | OpLMM -> nameof ( <-- )
+        | OpMMG -> nameof ( --> )
+        | OpMMMM -> nameof ( ---- )
+        | OpLMMMM -> nameof ( <---- )
+        | OpMMMMG -> nameof ( ----> )
     override this.ToString() =
         match this with
         | OpMMMM -> "--"
@@ -116,7 +116,7 @@ type private Operators =
         | OpGreaterOrEqual ->">="
         | OpNotEqual -> "<>"
 
-[<Sealed; NoComparison; NoEquality>]
+[<AbstractClass; Sealed>]
 type QuotationEvaluator =
     static member EvaluateUntyped (expr : Expr) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr
     static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
@@ -141,7 +141,7 @@ type private StepBuilder (serializer : Serializer) =
     let rec fixStringParameter (o : obj) =
         match o with
         | :? unit -> "null"
-        | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // TODO: See https://neo4j.com/docs/cypher-manual/3.5/syntax/expressions/ fro full list
+        | :? string as s -> "\"" + s.Replace("""\""", """\\""") + "\"" // TODO: See https://neo4j.com/docs/cypher-manual/3.5/syntax/expressions/ for full list
         | :? bool as b -> b.ToString().ToLower()
         | :? ResizeArray<obj> as xs ->
             xs
@@ -231,10 +231,6 @@ type private StepBuilder (serializer : Serializer) =
         addNonParamterized stmt
         addParamterized stmt
 
-    member this.PrependStatement (stmt : string) =
-        nonParameterizedSb.Insert(nonParameterizedSb.Length, stmt) |> ignore
-        parameterizedSb.Insert(parameterizedSb.Length, stmt) |> ignore
-
     member _.FinaliseClause (clause : Clause) =
         let step = CypherStep(clause, string parameterizedSb, string nonParameterizedSb, prms)
         parameterizedSb.Clear() |> ignore
@@ -242,9 +238,9 @@ type private StepBuilder (serializer : Serializer) =
         prms <- []
         steps <- step :: steps
 
-module private  Helpers =
-    
-    open FSharp.Data.Cypher.Functions
+module private Helpers =
+
+    open FSharp.Data.Cypher.Functions.Aggregating
 
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
@@ -268,7 +264,7 @@ module private  Helpers =
                     // In this case the obj is actually Node<'N> or Rel<'R>
                     // so will need to create an instance of it and call the static member
                     if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj then
-                        TypeHelpers.createNullRecordOrClass var.Type 
+                        TypeHelpers.createNullRecordOrClass var.Type
                         |> pi.GetValue
                     else varObj
 
@@ -314,21 +310,21 @@ module private  Helpers =
 
         let functionMatcher (expr : Expr) =
             match expr with
-            | Functions "count" fStatement
-            | Functions "collect" fStatement -> fStatement
+            | Functions (nameof avg) fStatement
+            | Functions (nameof collect) fStatement
+            | Functions (nameof count) fStatement
+            | Functions (nameof max) fStatement
+            | Functions (nameof min) fStatement
+            | Functions (nameof sum) fStatement -> fStatement
             | _ -> invalidOp (sprintf "AS, unmatched function: %A" expr)
 
         match expr with
-        | Call (Some expr, mi, [ Var v ])
-            when mi.Name = "AS"
-            && mi.DeclaringType.IsGenericType
-            && mi.DeclaringType.GetGenericTypeDefinition() = typedefof<AS<_>> ->
-                let fStatement stmBuilder =
-                    functionMatcher expr stmBuilder
-                    stmBuilder.AppendStatement " AS "
-                    stmBuilder.AppendStatement v.Name
-
-                Some (v, fStatement)
+        | Call (Some expr, mi, [ Var v ]) when mi.Name = "AS" && AS.IsTypeDefOf mi.DeclaringType ->
+            let fStatement stepBuilder = 
+                functionMatcher expr stepBuilder
+                stepBuilder.AppendStatement " AS "
+                stepBuilder.AppendStatement v.Name
+            Some (v, fStatement)
         | _ -> None
 
 module private BasicClause =
@@ -444,7 +440,7 @@ module private MatchClause =
         let makePathHops (expr : Expr) =
 
             let makeStatement startValue endValue =
-                if endValue = UInt32.MaxValue 
+                if endValue = UInt32.MaxValue
                 then sprintf "*%i.." startValue
                 else sprintf "*%i..%i" startValue endValue
 
@@ -597,9 +593,9 @@ module private MatchClause =
                 else ci.DeclaringType = typ
 
             let getParamType (pi : ParameterInfo) =
-                if pi.ParameterType.IsGenericType then 
-                    let typ = pi.ParameterType.GetGenericTypeDefinition() 
-                    if typ = typedefofIFSNode || typ = typedefofIFSRelationship 
+                if pi.ParameterType.IsGenericType then
+                    let typ = pi.ParameterType.GetGenericTypeDefinition()
+                    if typ = typedefofIFSNode || typ = typedefofIFSRelationship
                     then typ
                     else pi.ParameterType
                 else pi.ParameterType
@@ -625,7 +621,7 @@ module private MatchClause =
             | BuildJoin OpMMMMG (operator, left, right)
             | BuildJoin OpMM (operator, left, right)
             | BuildJoin OpLMM (operator, left, right)
-            | BuildJoin OpMMG (operator, left, right) -> 
+            | BuildJoin OpMMG (operator, left, right) ->
                 inner left
                 stepBuilder.AppendStatement (string operator)
                 inner right
@@ -744,7 +740,7 @@ module CypherBuilder =
 
     [<NoComparison; NoEquality>]
     type ForEachQuery<'T> = private | FEQ
-    
+
     [<NoComparison; NoEquality>]
     type Query<'T,'Result> = private | Q
 
@@ -882,7 +878,7 @@ module CypherBuilder =
                         varExp <- Some varValue
                         inner yieldEnd
                     | Let (v, e1, e2) ->
-                        if not(varDic.ContainsKey v.Name) 
+                        if not(varDic.ContainsKey v.Name)
                         then
                             varDic.Add(v.Name, if varExp.IsSome then varExp.Value else e1)
                             varExp <- None
@@ -955,10 +951,10 @@ module CypherBuilder =
                 firstStatement <- firstStatement + ")"
                 let rec inner (expr : Expr) =
                     let moveToNext clause next =
-                        if isFirstStatement 
-                        then
+                        if isFirstStatement then
                             stepBuilder.AppendStatement firstStatement
                             isFirstStatement <- false
+
                         stepBuilder.FinaliseClause clause
                         inner next
 

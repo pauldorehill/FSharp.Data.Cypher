@@ -1,11 +1,22 @@
 ﻿namespace FSharp.Data.Cypher
 
+open System
 /// Marker interface for a type that is a Node
 type IFSNode<'N> = interface end
 
 /// Marker interface for a type that is a Relationship
 type IFSRel<'R> = interface end
 
+[<Sealed; NoComparison; NoEquality>]
+type AS<'T>() =
+    member _.AS (variable : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
+
+[<AbstractClass; Sealed>]
+type AS =
+    static member internal IsTypeDefOf (typ : Type) =
+        typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<AS<_>>
+
+[<AbstractClass; Sealed>]
 type private Label =
     static member Make (label : string) =
         match label with
@@ -66,6 +77,7 @@ type Rel<'R>() =
     /// The (/) operator can be used to specify multiple relationships
     new(relationship : IFSRel<'R>, label : RelLabel, relationshipWithProperties : IFSRel<'R>) = Rel<'R>()
 
+[<AbstractClass; Sealed>]
 type Rel =
     static member internal IsTypeDefOf (o : obj) =
         let typ = o.GetType()
@@ -111,6 +123,7 @@ type Node<'N>() =
     static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
     static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = r
 
+[<AbstractClass; Sealed>]
 type Node =
     static member internal IsTypeDefOf (o : obj) =
         let typ = o.GetType()
