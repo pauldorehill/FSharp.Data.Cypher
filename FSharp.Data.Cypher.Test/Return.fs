@@ -17,7 +17,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN true", r)
-    
+
         [<Fact>]
         let ``Bool false`` () =
             cypher {
@@ -25,7 +25,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN false", r)
-        
+
         [<Fact>]
         let ``int32`` () =
             cypher {
@@ -33,7 +33,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5", r)
-    
+
         [<Fact>]
         let ``int64`` () =
             cypher {
@@ -41,7 +41,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5", r)
-        
+
         [<Fact>]
         let ``float`` () =
             cypher {
@@ -49,7 +49,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN 5.5", r)
-    
+
         [<Fact>]
         let ``string`` () =
             cypher {
@@ -57,7 +57,7 @@ module ``Query Building`` =
             }
             |> Cypher.rawQuery
             |> fun r -> Assert.Equal("RETURN \"EMU\"", r)
-        
+
         [<Fact>]
         let ``string with escaped characters`` () =
             cypher {
@@ -74,14 +74,14 @@ module ``Deserialize: Spoofed Results`` =
         }
         |> f
         |> fun r -> Assert.Equal(true, r)
-    
+
     let fBoolFalse f =
         cypher {
             RETURN false
         }
         |> f
         |> fun r -> Assert.Equal(false, r)
-        
+
     let fInt32 f =
         cypher {
             RETURN 5
@@ -115,7 +115,7 @@ module ``Deserialize: Spoofed Results`` =
         |> Map.ofList
         |> Generic.Dictionary
 
-    let spoofDicAll =  
+    let spoofDicAll =
         [ "$p00", box true
           "$p01", box false
           "$p02", box 5L // DB returns int64
@@ -124,13 +124,13 @@ module ``Deserialize: Spoofed Results`` =
           "$p05", box "EMU" ]
         |> makeDic
 
-    let fTupleOfAll f = 
+    let fTupleOfAll f =
         cypher {
             RETURN (true, false, 5, 7L, 5.5, "EMU")
         }
         |> f
         |> fun r -> Assert.Equal((true, false, 5, 7L, 5.5, "EMU"), r)
-    
+
     let [<Fact>] ``Bool true`` () = fBoolTrue (makeDic [ "$p00", box true ] |> Cypher.spoof)
     let [<Fact>] ``Bool false`` () = fBoolFalse (makeDic [ "$p00", box false ] |> Cypher.spoof)
     let [<Fact>] ``int32`` () = fInt32 (makeDic [ "$p00", box 5L ] |> Cypher.spoof)
@@ -138,43 +138,43 @@ module ``Deserialize: Spoofed Results`` =
     let [<Fact>] ``float`` () = fFloat (makeDic [ "$p00", box 5.5 ] |> Cypher.spoof)
     let [<Fact>] ``string`` () = fString (makeDic [ "$p00", box "EMU" ] |> Cypher.spoof)
     let [<Fact>] ``tuple of all`` () = fTupleOfAll (Cypher.spoof spoofDicAll)
-    
+
 module ``All allowed Types on a Record`` =
 
     type AllAllowed =
         { string : string
-          stringOption : string option 
-          stringSeq : string seq 
-          stringList : string List 
-          stringArray : string array 
-          stringSet : string Set 
-    
+          stringOption : string option
+          stringSeq : string seq
+          stringList : string List
+          stringArray : string array
+          stringSet : string Set
+
           int64 : int64
-          int64Option : int64 option 
-          int64Seq : int64 seq 
-          int64List : int64 List 
-          int64Array : int64 array 
-          int64Set : int64 Set 
-    
+          int64Option : int64 option
+          int64Seq : int64 seq
+          int64List : int64 List
+          int64Array : int64 array
+          int64Set : int64 Set
+
           int32 : int32
-          int32Option : int32 option 
-          int32Seq : int32 seq 
-          int32List : int32 List 
-          int32Array : int32 array 
-          int32Set : int32 Set 
-    
+          int32Option : int32 option
+          int32Seq : int32 seq
+          int32List : int32 List
+          int32Array : int32 array
+          int32Set : int32 Set
+
           float : float
-          floatOption : float option 
-          floatSeq : float seq 
-          floatList : float List 
-          floatArray : float array 
-          floatSet : float Set 
-    
+          floatOption : float option
+          floatSeq : float seq
+          floatList : float List
+          floatArray : float array
+          floatSet : float Set
+
           bool : bool
-          boolOption : bool option 
-          boolSeq : bool seq 
-          boolList : bool List 
-          boolArray : bool array 
+          boolOption : bool option
+          boolSeq : bool seq
+          boolList : bool List
+          boolArray : bool array
           boolSet : bool Set }
         interface IFSNode<AllAllowed>
 
@@ -211,9 +211,9 @@ module ``All allowed Types on a Record`` =
           "boolSet", box ([ box true ] |> ResizeArray) ]
 
     let allAllowedSome = Serialization.makeINode(0L, [], readOnlyDict baseList)
-    
-    let allAllowedNone = 
-        baseList 
+
+    let allAllowedNone =
+        baseList
         |> List.filter (fun (n, _) -> not(n.ToLower().Contains "option"))
         |> fun xs -> Serialization.makeINode(0L, [], readOnlyDict xs)
 
@@ -250,13 +250,13 @@ module ``All allowed Types on a Record`` =
           "boolSet", box false ]
         |> fun xs -> Serialization.makeINode(0L, [], readOnlyDict xs)
 
-    let spoofDic =  
+    let spoofDic =
         [ "allAllowedSome", box allAllowedSome
-          "allAllowedNone", box allAllowedNone 
+          "allAllowedNone", box allAllowedNone
           "nonCollections", box nonCollections ]
         |> Map.ofList
         |> Generic.Dictionary
-    
+
     type Graph =
         static member AllAllowed = Node<AllAllowed>()
 
@@ -292,7 +292,7 @@ namespace FSharp.Data.Cypher.Test.RETURN_DISTINCT
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =

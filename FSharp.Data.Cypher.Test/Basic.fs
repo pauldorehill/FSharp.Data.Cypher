@@ -3,7 +3,7 @@
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -18,7 +18,7 @@ namespace FSharp.Data.Cypher.Test.DETACH_DELETE
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -33,7 +33,7 @@ namespace FSharp.Data.Cypher.Test.ORDER_BY
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -48,7 +48,7 @@ namespace FSharp.Data.Cypher.Test.DESC
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -72,7 +72,7 @@ namespace FSharp.Data.Cypher.Test.ASC
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -96,7 +96,7 @@ namespace FSharp.Data.Cypher.Test.SKIP
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -111,7 +111,7 @@ namespace FSharp.Data.Cypher.Test.LIMIT
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -126,7 +126,7 @@ namespace FSharp.Data.Cypher.Test.WITH
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -135,7 +135,7 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WITH 42", q)
-    
+
     [<Fact>]
     let ``Statement of tuples`` () =
         cypher {
@@ -149,7 +149,7 @@ namespace FSharp.Data.Cypher.Test.UNION
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -164,7 +164,7 @@ namespace FSharp.Data.Cypher.Test.UNION_ALL
 open FSharp.Data.Cypher
 open Xunit
 
-module ``Can build`` = 
+module ``Can build`` =
 
     [<Fact>]
     let ``Statement`` () =
@@ -173,4 +173,3 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("UNION ALL", q)
-   

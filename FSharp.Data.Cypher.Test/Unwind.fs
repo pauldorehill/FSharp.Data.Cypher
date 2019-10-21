@@ -18,7 +18,7 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)
-    
+
     //[<Fact>]
     //let ``From list creation`` () =
     //    cypher {

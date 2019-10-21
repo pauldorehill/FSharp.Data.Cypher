@@ -11,42 +11,42 @@ module MovieGraph =
           released : int }
         interface IFSNode<Movie>
         member _.Label = NodeLabel "Movie"
-    
+
     type Person =
         { born : int option
           name : string }
         interface IFSNode<Person>
         member _.Label = NodeLabel "Person"
-    
+
     type ActedIn =
         { roles : string [] }
         interface IFSRel<ActedIn>
         member _.Label = RelLabel "ACTED_IN"
-    
-    type Directed = 
+
+    type Directed =
         private | NA
         interface IFSRel<Directed>
         member _.Label = RelLabel "DIRECTED"
-    
-    type Follows = 
+
+    type Follows =
         | NA
         interface IFSRel<Follows>
         member _.Label = RelLabel "FOLLOWS"
-    
-    type Produced() = 
+
+    type Produced() =
         interface IFSRel<Produced>
         member _.Label = RelLabel "PRODUCED"
-    
-    type Reviewed = 
+
+    type Reviewed =
         { summary : string
           rating : int }
         interface IFSRel<Reviewed>
         member _.Label = RelLabel "REVIEWED"
-    
-    type Wrote() = 
+
+    type Wrote() =
         interface IFSRel<Wrote>
         member _.Label = RelLabel "WROTE"
-    
+
     type Graph =
         static member Movie = Node<Movie>()
         static member Person = Node<Person>()

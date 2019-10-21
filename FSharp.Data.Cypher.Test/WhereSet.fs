@@ -5,7 +5,7 @@ open FSharp.Data.Cypher
 open Xunit
 
 module ``Allowed operators`` =
-    
+
     [<Fact>]
     let ``Equals =`` () =
 
@@ -14,7 +14,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 = 42", q)
-    
+
     [<Fact>]
     let ``Less than <`` () =
 
@@ -23,7 +23,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 < 42", q)
-    
+
     [<Fact>]
     let ``Less than or Equals <=`` () =
 
@@ -32,7 +32,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 <= 42", q)
-    
+
     [<Fact>]
     let ``Greater than >`` () =
 
@@ -41,7 +41,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 > 42", q)
-    
+
     [<Fact>]
     let ``Greater than or Equals >=`` () =
 
@@ -50,7 +50,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 >= 42", q)
-    
+
     [<Fact>]
     let ``Not Equal <>`` () =
 
@@ -59,7 +59,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 <> 42", q)
-        
+
     [<Fact>]
     let ``Or`` () =
 
@@ -68,7 +68,7 @@ module ``Allowed operators`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 <> 42 OR 42 <> 42", q)
-    
+
     [<Fact>]
     let ``And`` () =
         cypher {
@@ -78,7 +78,7 @@ module ``Allowed operators`` =
         |> fun q -> Assert.Equal("WHERE 42 <> 42 AND 42 <> 42", q)
 
 module ``Option types`` =
-    
+
     [<Fact>]
     let ``Some value`` () =
 
@@ -87,7 +87,7 @@ module ``Option types`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE 42 = 42", q)
-    
+
     [<Fact>]
     let ``None value`` () =
 
@@ -96,7 +96,7 @@ module ``Option types`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("WHERE null = null", q)
-        
+
     [<Fact>]
     let ``Some None`` () =
 
@@ -121,7 +121,7 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("SET 42", q)
-    
+
     [<Fact>]
     let ``Tupled statement`` () =
         cypher {
@@ -161,4 +161,4 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal("ON MATCH SET 42", q)
-   
+

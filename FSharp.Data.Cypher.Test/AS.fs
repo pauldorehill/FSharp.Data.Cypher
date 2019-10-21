@@ -21,7 +21,7 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal(rtn "count" "", q)
-    
+
     [<Fact>]
     let ``collect nodes`` () =
         cypher {
@@ -31,7 +31,7 @@ module ``Can build`` =
         }
         |> Cypher.rawQuery
         |> fun q -> Assert.Equal(rtn "collect" "", q)
-        
+
     [<Fact>]
     let ``collect node property`` () =
         cypher {

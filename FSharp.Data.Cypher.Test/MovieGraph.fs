@@ -7,7 +7,7 @@ open Xunit
 open GraphDomains.MovieGraph
 
 module ``Primative Types`` =
-    
+
     open RETURN.``Deserialize: Spoofed Results``
 
     let f x =
@@ -35,7 +35,7 @@ module ``Can deserialize all`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Movie>, x))
-    
+
     [<Fact>]
     let people () =
         cypher {
@@ -46,7 +46,7 @@ module ``Can deserialize all`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Person>, x))
-    
+
     [<Fact>]
     let actedIn () =
         cypher {
@@ -79,12 +79,12 @@ module ``Can deserialize all`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Follows>, x))
-    
+
     [<Fact>]
     let produced () =
         cypher {
             for pr in Graph.Produced do
-        
+
             MATCH (Node() -- Rel(pr, pr.Label) -- Node())
             RETURN pr
         }
