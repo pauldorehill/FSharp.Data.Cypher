@@ -33,7 +33,7 @@ type NodeLabel(label : string) =
 [<Sealed; NoComparison; NoEquality>]
 type RelLabel(label : string) =
     member _.Value = Label.Make label
-    static member (+) (r1 : RelLabel, r2 : RelLabel) =
+    static member ( + ) (r1 : RelLabel, r2 : RelLabel) =
         match r1.Value, r2.Value with
         | s1, s2 when s1 = "" && s2 = "" -> r1
         | s1, _ when s1 = "" -> r2
@@ -129,6 +129,7 @@ type Node =
         let typ = o.GetType()
         typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<Node<_>>
 
+// TODO: Paths... Path<'P> ...
 [<AutoOpen>]
 module Ascii =
 

@@ -10,69 +10,6 @@ open FSharp.Quotations.ExprShape
 
 type private VarDic = Generic.IReadOnlyDictionary<string,Expr>
 
-[<RequireQualifiedAccess>]
-type Clause =
-    | ASC
-    | CALL
-    | CREATE
-    | DELETE
-    | DESC
-    | DETACH_DELETE
-    | FOREACH
-    | LIMIT
-    | MATCH
-    | MERGE
-    | ON_CREATE_SET
-    | ON_MATCH_SET
-    | OPTIONAL_MATCH
-    | ORDER_BY
-    | REMOVE
-    | RETURN
-    | RETURN_DISTINCT
-    | SET
-    | SKIP
-    | UNION
-    | UNION_ALL
-    | UNWIND
-    | WHERE
-    | WITH
-    | YIELD
-    override this.ToString() =
-        match this with
-        | ASC -> "ASC"
-        | CALL -> "CALL"
-        | CREATE -> "CREATE"
-        | DELETE -> "DELETE"
-        | DESC -> "DESC"
-        | DETACH_DELETE -> "DETACH DELETE"
-        | FOREACH -> "FOREACH"
-        | LIMIT -> "LIMIT"
-        | MATCH -> "MATCH"
-        | MERGE -> "MERGE"
-        | ON_CREATE_SET -> "ON CREATE SET"
-        | ON_MATCH_SET -> "ON MATCH SET"
-        | OPTIONAL_MATCH -> "OPTIONAL MATCH"
-        | ORDER_BY -> "ORDER BY"
-        | REMOVE -> "REMOVE"
-        | RETURN -> "RETURN"
-        | RETURN_DISTINCT -> "RETURN DISTINCT"
-        | SET -> "SET"
-        | SKIP -> "SKIP"
-        | UNION -> "UNION"
-        | UNION_ALL ->"UNION ALL"
-        | UNWIND ->"UNWIND"
-        | WHERE -> "WHERE"
-        | WITH -> "WITH"
-        | YIELD -> "YIELD"
-
-    member this.IsWrite =
-        match this with
-        | CREATE | DELETE | DETACH_DELETE | FOREACH | MERGE
-        | ON_CREATE_SET | ON_MATCH_SET | REMOVE | SET -> true
-        | _  -> false
-
-    member this.IsRead = not this.IsWrite
-
 [<NoComparison; NoEquality>]
 type private Operators =
     | OpEqual
@@ -122,14 +59,7 @@ type QuotationEvaluator =
     static member Evaluate (expr : Expr<'T>) = Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation expr :?> 'T
 
 [<Sealed; NoComparison; NoEquality>]
-type private CypherStep(clause : Clause, statement : string, rawStatement : string, parameters : ParameterList) =
-    member _.Clause = clause
-    member _.Statement = statement
-    member _.RawStatement = rawStatement
-    member _.Parameters = parameters
-
-[<Sealed; NoComparison; NoEquality>]
-type private StepBuilder (serializer : Serializer) =
+type private StepBuilder(serializer : Serializer) =
     let mutable prmCount = 0
     let mutable prms : ParameterList = []
     let mutable steps : CypherStep list = []
@@ -177,49 +107,7 @@ type private StepBuilder (serializer : Serializer) =
         action v
 
     member _.Build (continuation : ReturnContination<'T> option) =
-        let sb = Text.StringBuilder()
-        let makeQuery (paramterized : bool) (multiline : bool) =
-            let add (s : string) = sb.Append s |> ignore
-            let mutable count : int = 1
-            let mutable isForEach = false
-            let mutable padding = Text.StringBuilder()
-            let pad() =
-                isForEach <- true
-                padding <- padding.Append "    "
-            let unPad() =
-                isForEach <- false
-                padding <- padding.Remove(0, 4)
-
-            for step in steps do
-                add (string padding)
-                add (string step.Clause)
-
-                if multiline && step.Clause = Clause.FOREACH then pad()
-
-                if step.Statement <> "" then
-                    add " "
-                    if paramterized then add step.Statement else add step.RawStatement
-
-                if multiline && isForEach && step.RawStatement.EndsWith ")" then unPad()
-
-                if count < steps.Length then
-                    if multiline then add Environment.NewLine else add " "
-
-                count <- count + 1
-
-            let qry = string sb
-            sb.Clear() |> ignore
-            qry
-
-        let parameters = steps |> List.collect (fun cs -> cs.Parameters)
-        let query = makeQuery true false
-        let queryMultiline = makeQuery true true
-        let rawQuery = makeQuery false false
-        let rawQueryMultiline = makeQuery false true
-        let isWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
-        let continuation = if typeof<'T> = typeof<unit> then None else continuation // If returning unit, no point running the continuation
-
-        Cypher<'T>(continuation, parameters, query, queryMultiline, rawQuery, rawQueryMultiline, isWrite)
+        Cypher<'T>(continuation, Query(steps))
 
     member this.AddTypeRtnKey (o : obj) = this.Serialize o |> add
 
@@ -240,7 +128,8 @@ type private StepBuilder (serializer : Serializer) =
 
 module private Helpers =
 
-    open FSharp.Data.Cypher.Functions.Aggregating
+    open FSharp.Data.Cypher.Functions
+    open Aggregating
 
     let extractObject (varDic : VarDic) (expr : Expr) =
         match expr with
