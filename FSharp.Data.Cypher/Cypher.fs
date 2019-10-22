@@ -34,9 +34,7 @@ type Clause =
     | UNWIND
     | WHERE
     | WITH
-    | YIELD
-    // To Add:
-    // Paths... Path<'P> ...
+    | YIELD // Not in Builder
     // Constraints:
     // CREATE CONSTRAINT ON, DROP CONSTRAINT ON, ASSERT, IS UNIQUE
     // Query profiling:
@@ -93,7 +91,7 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
 
 type Query (steps : CypherStep list) =
     let sb = Text.StringBuilder()
-    let makeQuery (paramterized : bool) (multiline : bool) =
+    let makeQuery (multiline : bool) (paramterized : bool) =
         let add (s : string) = sb.Append s |> ignore
         let mutable count : int = 1
         let mutable isForEach = false
@@ -126,19 +124,12 @@ type Query (steps : CypherStep list) =
         sb.Clear() |> ignore
         qry
 
-    let parameters = steps |> List.collect (fun cs -> cs.Parameters)
-    let query = makeQuery true false
-    let queryMultiline = makeQuery true true
-    let rawQuery = makeQuery false false
-    let rawQueryMultiline = makeQuery false true
-    let isWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
-
-    member _.Value = query
-    member _.Multiline = queryMultiline
-    member _.Raw = rawQuery
-    member _.RawMultiline = rawQueryMultiline
-    member _.IsWrite = isWrite
-    member _.Parameters = parameters
+    member _.Parameterized = makeQuery false true
+    member _.ParameterizedMultiline = makeQuery true true
+    member _.Raw = makeQuery false false
+    member _.RawMultiline = makeQuery true false
+    member _.IsWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
+    member _.Parameters = steps |> List.collect (fun cs -> cs.Parameters)
 
 type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
     member _.Results = results
@@ -212,11 +203,11 @@ module Cypher =
         async {
             let session = driver.AsyncSession()
             try
-                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Value, makeParameters cypher)
+                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, makeParameters cypher)
 
                 let! statementCursor =
                     if cypher.Query.IsWrite
-                    then session.WriteTransactionAsync run 
+                    then session.WriteTransactionAsync run
                     else session.ReadTransactionAsync run
                     |> Async.AwaitTask
 
@@ -249,9 +240,9 @@ module Cypher =
         | Some continuation -> continuation di
         | None -> invalidOp "No RETURN clause given when running spoof."
 
-    let rawQuery (cypher : Cypher<'T>) = cypher.Query.Raw
+    let queryRaw (cypher : Cypher<'T>) = cypher.Query.Raw
 
-    let query (cypher : Cypher<'T>) = cypher.Query.Value
+    let queryParameterized (cypher : Cypher<'T>) = cypher.Query.Parameterized
 
     /// Returns a TransactionResult - where the transation needs to be commited to the database or rolled back manually
     module Explicit =
@@ -259,7 +250,7 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
-                let! statementCursor = transaction.RunAsync(cypher.Query.Value, makeParameters cypher) |> Async.AwaitTask
+                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, makeParameters cypher) |> Async.AwaitTask
 
                 let! results =
                     match cypher.Continuation with
@@ -275,7 +266,7 @@ module Cypher =
         let asyncRunMap (driver : IDriver) map (cypher : Cypher<'T>) =
             let session =
                 if cypher.Query.IsWrite then
-                    driver.AsyncSession(fun sc -> 
+                    driver.AsyncSession(fun sc ->
                         sc.DefaultAccessMode <- AccessMode.Write)
                 else
                     driver.AsyncSession(fun sc ->

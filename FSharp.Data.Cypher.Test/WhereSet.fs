@@ -12,7 +12,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 = 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 = 42", q)
 
     [<Fact>]
@@ -21,7 +21,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 < 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 < 42", q)
 
     [<Fact>]
@@ -30,7 +30,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 <= 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 <= 42", q)
 
     [<Fact>]
@@ -39,7 +39,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 > 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 > 42", q)
 
     [<Fact>]
@@ -48,7 +48,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 >= 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 >= 42", q)
 
     [<Fact>]
@@ -57,7 +57,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 <> 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 <> 42", q)
 
     [<Fact>]
@@ -66,7 +66,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 <> 42 || 42 <> 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 <> 42 OR 42 <> 42", q)
 
     [<Fact>]
@@ -74,7 +74,7 @@ module ``Allowed operators`` =
         cypher {
             WHERE (42 <> 42 && 42 <> 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 <> 42 AND 42 <> 42", q)
 
 module ``Option types`` =
@@ -85,7 +85,7 @@ module ``Option types`` =
         cypher {
             WHERE (Some 42 = Some 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 = 42", q)
 
     [<Fact>]
@@ -94,7 +94,7 @@ module ``Option types`` =
         cypher {
             WHERE (None = None)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE null = null", q)
 
     [<Fact>]
@@ -103,7 +103,7 @@ module ``Option types`` =
         cypher {
             WHERE (Some 42 = None)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("WHERE 42 = null", q)
 
 namespace FSharp.Data.Cypher.Test.SET
@@ -119,7 +119,7 @@ module ``Can build`` =
         cypher {
             SET 42
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("SET 42", q)
 
     [<Fact>]
@@ -127,7 +127,7 @@ module ``Can build`` =
         cypher {
             SET (42, 42, 42)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("SET 42, 42, 42", q)
 
 namespace FSharp.Data.Cypher.Test.ON_CREATE_SET
@@ -143,7 +143,7 @@ module ``Can build`` =
         cypher {
             ON_CREATE_SET 42
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("ON CREATE SET 42", q)
 
 namespace FSharp.Data.Cypher.Test.ON_MATCH_SET
@@ -159,6 +159,6 @@ module ``Can build`` =
         cypher {
             ON_MATCH_SET 42
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("ON MATCH SET 42", q)
 

@@ -16,7 +16,7 @@ module ``Can build`` =
             let myVar = AS<NodeType list>()
             UNWIND (collect(node) .AS myVar)
         }
-        |> Cypher.rawQuery
+        |> Cypher.queryRaw
         |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)
 
     //[<Fact>]
@@ -26,5 +26,5 @@ module ``Can build`` =
     //        let myVar = AS<NodeType list>()
     //        UNWIND ([ 1 .. 2 ])
     //    }
-    //    |> Cypher.rawQuery
+    //    |> Cypher.queryNonParameterized
     //    |> fun q -> Assert.Equal("UNWIND collect(node) AS myVar", q)

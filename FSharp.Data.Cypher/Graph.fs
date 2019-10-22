@@ -1,6 +1,7 @@
 ﻿namespace FSharp.Data.Cypher
 
 open System
+
 /// Marker interface for a type that is a Node
 type IFSNode<'N> = interface end
 
