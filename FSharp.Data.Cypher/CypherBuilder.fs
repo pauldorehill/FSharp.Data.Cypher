@@ -250,16 +250,18 @@ module private RemoveClause =
         let (|IsRemove|) (expr : Expr) =
             let rec inner (expr : Expr) =
                 match expr with
-                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type ->
+                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && NodeLabel.IsLabel label.Type ->
                     inner entity
-                    inner label
-                | Var v when NodeLabel.IsLabel v.Type -> 
-                    varDic.[v.Name]
-                    |> Expr.Cast<NodeLabel>
-                    |> QuotationEvaluator.Evaluate
+                    Helpers.extractObject varDic label
+                    :?> NodeLabel
                     |> string
                     |> stepBuilder.AddStatement
-                    
+                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && RelLabel.IsLabel label.Type ->
+                    inner entity
+                    Helpers.extractObject varDic label
+                    :?> RelLabel
+                    |> string
+                    |> stepBuilder.AddStatement
                 | Var v -> stepBuilder.AddStatement v.Name
                 | PropertyGet (Some expr, _, []) -> inner expr
                 | _ ->
@@ -273,7 +275,7 @@ module private RemoveClause =
             | Let (_, _, expr) | Lambda (_, expr) -> inner expr
             | NewTuple exprs ->
                 exprs |> List.iteri (StepBuilder.JoinTuple (function IsRemove -> ()) stepBuilder)
-            | _ -> sprintf "REMOVE.  Unrecognized expression: %A" expr |> invalidOp
+            | _ -> sprintf "REMOVE statements must be in the form of: REMOVE ((node, Label), (rel, Label), ..). You passed in: %A" expr |> invalidOp
 
         inner expr
 
