@@ -103,7 +103,7 @@ type private StepBuilder(serializer : Serializer) =
     static member KeySymbol = "$"
 
     static member JoinTuple action (stmBuilder : StepBuilder) i v =
-        if i <> 0 then stmBuilder.AppendStatement ", "
+        if i <> 0 then stmBuilder.AddStatement ", "
         action v
 
     member _.Build (continuation : ReturnContination<'T> option) =
@@ -115,7 +115,7 @@ type private StepBuilder(serializer : Serializer) =
 
     member this.AddType (expr : Expr) = QuotationEvaluator.EvaluateUntyped expr |> this.AddType
 
-    member _.AppendStatement (stmt : string) =
+    member _.AddStatement (stmt : string) =
         addNonParamterized stmt
         addParamterized stmt
 
@@ -181,19 +181,19 @@ module private Helpers =
             match expr with
             | Call (None, mi, [ Var v ]) when mi.Name = name ->
                 let f (stepBuilder : StepBuilder) =
-                    stepBuilder.AppendStatement name
-                    stepBuilder.AppendStatement "("
-                    stepBuilder.AppendStatement v.Name
-                    stepBuilder.AppendStatement ")"
+                    stepBuilder.AddStatement name
+                    stepBuilder.AddStatement "("
+                    stepBuilder.AddStatement v.Name
+                    stepBuilder.AddStatement ")"
                 Some f
             | Call (None, mi, [ PropertyGet (Some (Var v), pi, []) ]) when mi.Name = name ->
                 let f (stepBuild : StepBuilder) =
-                    stepBuild.AppendStatement name
-                    stepBuild.AppendStatement "("
-                    stepBuild.AppendStatement v.Name
-                    stepBuild.AppendStatement "."
-                    stepBuild.AppendStatement pi.Name
-                    stepBuild.AppendStatement ")"
+                    stepBuild.AddStatement name
+                    stepBuild.AddStatement "("
+                    stepBuild.AddStatement v.Name
+                    stepBuild.AddStatement "."
+                    stepBuild.AddStatement pi.Name
+                    stepBuild.AddStatement ")"
                 Some f
             | _ -> None
 
@@ -209,10 +209,10 @@ module private Helpers =
 
         match expr with
         | Call (Some expr, mi, [ Var v ]) when mi.Name = "AS" && AS.IsTypeDefOf mi.DeclaringType ->
-            let fStatement stepBuilder = 
+            let fStatement stepBuilder =
                 functionMatcher expr stepBuilder
-                stepBuilder.AppendStatement " AS "
-                stepBuilder.AppendStatement v.Name
+                stepBuilder.AddStatement " AS "
+                stepBuilder.AddStatement v.Name
             Some (v, fStatement)
         | _ -> None
 
@@ -223,26 +223,57 @@ module private BasicClause =
         let extractStatement (exp : Expr) =
             match exp with
             | Value (o, _) -> stepBuilder.AddType o
-            | Var v -> stepBuilder.AppendStatement v.Name
+            | Var v -> stepBuilder.AddStatement v.Name
             | PropertyGet (Some (Var v), pi, _) ->
-                stepBuilder.AppendStatement v.Name
-                stepBuilder.AppendStatement "."
-                stepBuilder.AppendStatement pi.Name
-            | PropertyGet (None, pi, _) -> stepBuilder.AppendStatement pi.Name
+                stepBuilder.AddStatement v.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
+            | PropertyGet (None, pi, _) -> stepBuilder.AddStatement pi.Name
             | _ ->
                 exp
                 |> sprintf "Trying to extract statement but couldn't match expression: %A"
                 |> invalidOp
 
-        let makeTuple exprs =
-            exprs |> List.iteri (StepBuilder.JoinTuple extractStatement stepBuilder)
-
         let rec inner expr =
             match expr with
             | Let (_, _, expr) | Lambda (_, expr) -> inner expr
             | Value _ | Var _ | PropertyGet _ -> extractStatement expr
-            | NewTuple exprs -> makeTuple exprs
+            | NewTuple exprs -> exprs |> List.iteri (StepBuilder.JoinTuple extractStatement stepBuilder)
             | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
+
+        inner expr
+
+module private RemoveClause =
+
+    let make (stepBuilder : StepBuilder) (varDic : VarDic) (expr : Expr) =
+
+        let (|IsRemove|) (expr : Expr) =
+            let rec inner (expr : Expr) =
+                match expr with
+                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type ->
+                    inner entity
+                    inner label
+                | Var v when NodeLabel.IsLabel v.Type -> 
+                    varDic.[v.Name]
+                    |> Expr.Cast<NodeLabel>
+                    |> QuotationEvaluator.Evaluate
+                    |> string
+                    |> stepBuilder.AddStatement
+                    
+                | Var v -> stepBuilder.AddStatement v.Name
+                | PropertyGet (Some expr, _, []) -> inner expr
+                | _ ->
+                    expr
+                    |> sprintf "REMOVE. Trying to extract statement but couldn't match expression: %A"
+                    |> invalidOp
+            inner expr
+
+        let rec inner expr =
+            match expr with
+            | Let (_, _, expr) | Lambda (_, expr) -> inner expr
+            | NewTuple exprs ->
+                exprs |> List.iteri (StepBuilder.JoinTuple (function IsRemove -> ()) stepBuilder)
+            | _ -> sprintf "REMOVE.  Unrecognized expression: %A" expr |> invalidOp
 
         inner expr
 
@@ -296,9 +327,9 @@ module private MatchClause =
 
                 let build i (pi : PropertyInfo) =
                     let name () =
-                        if isFirst then isFirst <- false else stepBuilder.AppendStatement ", "
-                        stepBuilder.AppendStatement pi.Name
-                        stepBuilder.AppendStatement ": "
+                        if isFirst then isFirst <- false else stepBuilder.AddStatement ", "
+                        stepBuilder.AddStatement pi.Name
+                        stepBuilder.AddStatement ": "
 
                     match fieldValues.[i] with
                     | Choice1Of3 expr ->
@@ -309,17 +340,17 @@ module private MatchClause =
                         stepBuilder.AddType o
                     | Choice3Of3 _ -> ()
 
-                stepBuilder.AppendStatement "{"
+                stepBuilder.AddStatement "{"
                 TypeHelpers.getProperties typ |> Array.iteri build
-                stepBuilder.AppendStatement "}"
+                stepBuilder.AddStatement "}"
 
             let rec inner (expr : Expr) =
                 match expr with
                 | Coerce (expr, _) | Let (_, _, expr) -> inner expr
-                | PropertyGet (None, ifs, []) -> stepBuilder.AppendStatement ifs.Name
-                | Call(None, mi, []) -> stepBuilder.AppendStatement mi.Name
-                | Var ifs -> stepBuilder.AppendStatement ifs.Name
-                | ValueWithName (_, _, name) -> stepBuilder.AppendStatement name
+                | PropertyGet (None, ifs, []) -> stepBuilder.AddStatement ifs.Name
+                | Call(None, mi, []) -> stepBuilder.AddStatement mi.Name
+                | Var ifs -> stepBuilder.AddStatement ifs.Name
+                | ValueWithName (_, _, name) -> stepBuilder.AddStatement name
                 | NewRecord (typ, exprs) -> makeRecordOrClass typ exprs
                 | NewObject (_, _) -> invalidOp "Classes are not yet supported" // Hard to support classes..
                 | _ -> sprintf "Could not build IFS from expression %A" expr |> invalidOp
@@ -374,7 +405,7 @@ module private MatchClause =
             | ListCons statement -> statement
             | IsCreateSeq (GetRange varDic (startV , endV)) -> makeStatement startV endV
             | _ -> sprintf "Could not build Path Hops from expression %A" expr |> invalidOp
-            |> stepBuilder.AppendStatement
+            |> stepBuilder.AddStatement
 
         let (|NoParams|_|) ((ctrTypes : Type []), (ctrExpr : Expr list)) =
             match ctrTypes, ctrExpr with
@@ -404,10 +435,10 @@ module private MatchClause =
 
             inner expr
             |> string
-            |> stepBuilder.AppendStatement
+            |> stepBuilder.AddStatement
 
         let makeRel (ctrTypes : Type []) (ctrExpr : Expr list) =
-            stepBuilder.AppendStatement "["
+            stepBuilder.AddStatement "["
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typedefofIFSRelationship |] param -> makeIFS param
@@ -426,26 +457,26 @@ module private MatchClause =
             | ThreeParams [| typedefofIFSRelationship; typeofRelLabel; typedefofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS param1
                 makeRelLabel param2
-                stepBuilder.AppendStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
 
-            stepBuilder.AppendStatement "]"
+            stepBuilder.AddStatement "]"
 
         let makeNodeLabelList (expr : Expr) =
             match expr with
             | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
             | _ -> extractObject varDic expr :?> NodeLabel list
-            |> List.iter (string >> stepBuilder.AppendStatement)
+            |> List.iter (string >> stepBuilder.AddStatement)
 
         let makeNodeLabel expr =
             extractObject varDic expr
             :?> NodeLabel
             |> string
-            |> stepBuilder.AppendStatement
+            |> stepBuilder.AddStatement
 
         let makeNode (ctrTypes : Type []) (ctrExpr : Expr list) =
-            stepBuilder.AppendStatement "("
+            stepBuilder.AddStatement "("
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typeofNodeLabel |] param -> makeNodeLabel param
@@ -459,21 +490,21 @@ module private MatchClause =
                 makeNodeLabelList param2
             | TwoParams [| typedefofIFSNode; typedefofIFSNode |] (param1, param2) ->
                 makeIFS param1
-                stepBuilder.AppendStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param2
             | ThreeParams [| typedefofIFSNode; typeofNodeLabel; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabel param2
-                stepBuilder.AppendStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | ThreeParams [| typedefofIFSNode; typeofNodeLabelList; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
                 makeNodeLabelList param2
-                stepBuilder.AppendStatement " "
+                stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp
 
-            stepBuilder.AppendStatement ")"
+            stepBuilder.AddStatement ")"
 
         let (|GetConstructors|_|) (typ : Type) (expr : Expr) =
             let isTyp (ci : ConstructorInfo) =
@@ -512,7 +543,7 @@ module private MatchClause =
             | BuildJoin OpLMM (operator, left, right)
             | BuildJoin OpMMG (operator, left, right) ->
                 inner left
-                stepBuilder.AppendStatement (string operator)
+                stepBuilder.AddStatement (string operator)
                 inner right
             | Var v -> invalidOp (sprintf "You must call Node(..) or Rel(..) for Variable %s within the MATCH statement" v.Name)
             | _ -> invalidOp (sprintf "Unable to build MATCH statement from expression: %A" expr)
@@ -525,9 +556,9 @@ module private WhereSetClause =
 
         let buildState fExpr left symbol right =
             fExpr left
-            stepBuilder.AppendStatement " "
-            stepBuilder.AppendStatement symbol
-            stepBuilder.AppendStatement " "
+            stepBuilder.AddStatement " "
+            stepBuilder.AddStatement symbol
+            stepBuilder.AddStatement " "
             fExpr right
 
         let (|Operator|_|) (operator : Operators) fExpr expr =
@@ -555,14 +586,14 @@ module private WhereSetClause =
             | Value (_, _) -> stepBuilder.AddType expr
             | PropertyGet (Some (PropertyGet (Some e, pi, _)), _, _) ->
                 inner e
-                stepBuilder.AppendStatement "."
-                stepBuilder.AppendStatement pi.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
             | PropertyGet (Some e, pi, _) ->
                 inner e
-                stepBuilder.AppendStatement "."
-                stepBuilder.AppendStatement pi.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
             | PropertyGet (None, _, _) -> stepBuilder.AddType expr
-            | Var v -> stepBuilder.AppendStatement v.Name
+            | Var v -> stepBuilder.AddStatement v.Name
             | _ -> invalidOp (sprintf "WHERE/SET statement - unmatched Expr: %A" expr)
 
         inner expr
@@ -579,15 +610,15 @@ module private ReturnClause =
                 let key = StepBuilder.KeySymbol + stepBuilder.AddTypeRtnKey o
                 key, typ
             | Var v ->
-                stepBuilder.AppendStatement v.Name
+                stepBuilder.AddStatement v.Name
                 v.Name, v.Type
             | PropertyGet (Some (Var v), pi, _) ->
-                stepBuilder.AppendStatement v.Name
-                stepBuilder.AppendStatement "."
-                stepBuilder.AppendStatement pi.Name
+                stepBuilder.AddStatement v.Name
+                stepBuilder.AddStatement "."
+                stepBuilder.AddStatement pi.Name
                 v.Name + "." + pi.Name, pi.PropertyType
             | PropertyGet (None, pi, []) ->
-                stepBuilder.AppendStatement pi.Name
+                stepBuilder.AddStatement pi.Name
                 pi.Name, pi.PropertyType
             | AS (v, fStatement) ->
                 fStatement stepBuilder
@@ -726,6 +757,9 @@ module CypherBuilder =
         [<CustomOperation(nameof Clause.SET, MaintainsVariableSpace = true)>]
         member _.SET (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Set) : Query<'T,'Result> = Q
 
+        [<CustomOperation(nameof Clause.REMOVE, MaintainsVariableSpace = true)>]
+        member _.REMOVE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Remove) : Query<'T,'Result> = Q
+
         [<CustomOperation(nameof Clause.SKIP, MaintainsVariableSpace = true)>]
         member _.SKIP (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
@@ -808,9 +842,9 @@ module CypherBuilder =
                     Some stepAbove
                 | _ -> None
 
-            let (|Unwind|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|Unwind|_|) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
-                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
+                | SpecificCall <@@ this.UNWIND @@> (_, _, [ stepAbove; thisStep ]) ->
                     UnwindClause.make stepBuilder thisStep
                     Some stepAbove
                 | _ -> None
@@ -818,6 +852,14 @@ module CypherBuilder =
             let (|NoStatement|_|) (callExpr : Expr) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove ]) -> Some stepAbove
+                | _ -> None
+
+            let (|Remove|_|) (stepBuilder : StepBuilder) (expr : Expr) =
+                match expr with
+                | SpecificCall <@@ this.REMOVE @@> (_, _, [ stepAbove; thisStep ]) -> 
+                    RemoveClause.make stepBuilder varDic thisStep
+                    Some stepAbove
+                | _ -> None
                 | _ -> None
 
             let (|ForEachStatement|_|) buildForEach (stepBuilder : StepBuilder) (expr : Expr) =
@@ -841,7 +883,7 @@ module CypherBuilder =
                 let rec inner (expr : Expr) =
                     let moveToNext clause next =
                         if isFirstStatement then
-                            stepBuilder.AppendStatement firstStatement
+                            stepBuilder.AddStatement firstStatement
                             isFirstStatement <- false
 
                         stepBuilder.FinaliseClause clause
@@ -853,14 +895,14 @@ module CypherBuilder =
                     | Sequential (_, expr) -> inner expr
                     | SpecificCall <@@ FOREACH.Yield @@> (_, _, [ expr ]) -> inner expr
                     | SpecificCall <@@ FOREACH.Zero @@> _ -> ()
-                    | Var v -> stepBuilder.AppendStatement v.Name
+                    | Var v -> stepBuilder.AddStatement v.Name
                     | Call (_, mi, [ stepAbove; ForEachStatement buildForEach stepBuilder ]) when mi.Name = "For" -> inner stepAbove
                     | Call (_, mi, [ stepAbove; thisStep ]) when mi.Name = "For" ->
-                        stepBuilder.AppendStatement "("
+                        stepBuilder.AddStatement "("
                         inner thisStep
-                        stepBuilder.AppendStatement " IN "
+                        stepBuilder.AddStatement " IN "
                         inner stepAbove
-                        stepBuilder.AppendStatement " |"
+                        stepBuilder.AddStatement " |"
                     | MatchCreateMerge <@@ FOREACH.CREATE @@> stepBuilder stepAbove -> moveToNext Clause.CREATE stepAbove
                     | Basic <@@ FOREACH.DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DELETE stepAbove
                     | Basic <@@ FOREACH.DETACH_DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DETACH_DELETE stepAbove
@@ -897,13 +939,14 @@ module CypherBuilder =
                 | WhereSet <@@ this.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
                 | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> stepBuilder stepAbove -> moveToNext Clause.OPTIONAL_MATCH stepAbove
                 | Basic <@@ this.ORDER_BY @@> stepBuilder stepAbove -> moveToNext Clause.ORDER_BY stepAbove
+                | Remove stepBuilder stepAbove -> moveToNext Clause.REMOVE stepAbove
                 | Return <@@ this.RETURN @@> stepBuilder stepAbove -> moveToNext Clause.RETURN stepAbove
                 | Return <@@ this.RETURN_DISTINCT @@> stepBuilder stepAbove -> moveToNext Clause.RETURN_DISTINCT stepAbove
                 | WhereSet <@@ this.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove
                 | Basic <@@ this.SKIP @@> stepBuilder stepAbove -> moveToNext Clause.SKIP stepAbove
                 | NoStatement <@@ this.UNION @@> stepAbove -> moveToNext Clause.UNION stepAbove
                 | NoStatement <@@ this.UNION_ALL @@> stepAbove -> moveToNext Clause.UNION_ALL stepAbove
-                | Unwind <@@ this.UNWIND @@> stepBuilder stepAbove -> moveToNext Clause.UNWIND stepAbove
+                | Unwind stepBuilder stepAbove -> moveToNext Clause.UNWIND stepAbove
                 | WhereSet <@@ this.WHERE @@> stepBuilder stepAbove -> moveToNext Clause.WHERE stepAbove
                 | Basic <@@ this.WITH @@>stepBuilder stepAbove -> moveToNext Clause.WITH stepAbove
                 | _ -> sprintf "Un matched method when building Query: %A" expr |> invalidOp

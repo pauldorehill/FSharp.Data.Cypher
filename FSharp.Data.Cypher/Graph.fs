@@ -16,7 +16,7 @@ type AS =
     static member internal IsTypeDefOf (typ : Type) =
         typ.IsGenericType && typ.GetGenericTypeDefinition() = typedefof<AS<_>>
 
-[<AbstractClass; Sealed>]
+[<AbstractClass; Sealed>] 
 type private Label =
     static member Make (label : string) =
         match label with
@@ -28,9 +28,10 @@ type private Label =
 type NodeLabel(label : string) =
     member _.Value = Label.Make label
     override this.ToString() = this.Value
+    static member IsLabel (typ : Type) = typ = typeof<NodeLabel> 
 
 // Neo technically calls these Type, however the use of type is a bit confusing so label has been used.
-[<Sealed; NoComparison; NoEquality>]
+[<Sealed; NoComparison; NoEquality>] 
 type RelLabel(label : string) =
     member _.Value = Label.Make label
     static member ( + ) (r1 : RelLabel, r2 : RelLabel) =
@@ -43,6 +44,7 @@ type RelLabel(label : string) =
     static member (/) (r1 : RelLabel, r2 : RelLabel) = r1 + r2
     static member get_Zero() = RelLabel "" // TODO: here to allow use of sumBy: not sure if I should keep
     override this.ToString() = this.Value
+    static member IsLabel (typ : Type) = typ = typeof<RelLabel>
 
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
