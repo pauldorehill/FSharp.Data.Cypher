@@ -50,7 +50,6 @@ type RelLabel(label : string) =
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]
 type Rel<'R>() =
-    interface IFSRel<'R>
     /// Match a Relationship and bind it to the variable name
     new(relationship : IFSRel<'R>) = Rel<'R>()
 
@@ -90,7 +89,6 @@ type Rel =
 /// Match any Node
 [<Sealed; NoComparison; NoEquality>]
 type Node<'N>() =
-    interface IFSNode<'N>
     /// Match a Node with the label, do not bind to any variable name
     new(label : NodeLabel) = Node<'N>()
 

@@ -130,8 +130,25 @@ module private Helpers =
 
     open FSharp.Data.Cypher.Functions
     open Aggregating
+    
+    [<RequireQualifiedAccess>]
+    type LabelTypes =
+        | NodeLabel
+        | RelLabel
+        | NodeLabelList
+            
+    // Use these since match statements happy with typeof<_>
+    let typedefofNode = typedefof<Node<_>>
+    let typedefofRel = typedefof<Rel<_>>
+    let typedefofIFSNode = typedefof<IFSNode<_>>
+    let typedefofIFSRelationship = typedefof<IFSRel<_>>
+    let typeofNodeLabel = typeof<NodeLabel>
+    let typeofNodeLabelList = typeof<NodeLabel list>
+    let typeofRelLabel = typeof<RelLabel>
+    let typeofUInt32 = typeof<uint32>
+    let typeofUInt32List = typeof<uint32 list>
 
-    let extractObject (varDic : VarDic) (expr : Expr) =
+    let evalulateVar (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ]) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (None, _, []) -> QuotationEvaluator.EvaluateUntyped expr
@@ -159,13 +176,13 @@ module private Helpers =
 
             inner expr
 
-        | _ -> sprintf "Could not build Label from expression %A" expr |> invalidOp
+        | _ -> sprintf "Could not evaluate Var from expression %A" expr |> invalidOp
 
     let (|GetRange|_|) (varDic : VarDic) (expr : Expr) =
         match expr with
         | SpecificCall <@@ (..) @@> (None, _, [ expr1; expr2 ]) ->
-            let startValue = extractObject varDic expr1 :?> uint32
-            let endValue = extractObject varDic expr2 :?> uint32
+            let startValue = evalulateVar varDic expr1 :?> uint32
+            let endValue = evalulateVar varDic expr2 :?> uint32
             Some (startValue, endValue)
         | _ -> None
 
@@ -173,6 +190,38 @@ module private Helpers =
         match expr with
         | Call (None, mi, [ Coerce (Call (None, mi2, [ expr ]), _) ])
             when mi.Name = "ToList" && mi2.Name = "CreateSequence" -> Some expr
+        | _ -> None
+
+    let makeLabel (stepBuilder : StepBuilder) (varDic : VarDic) (labelType : LabelTypes) (expr : Expr) =
+        match labelType with
+        | LabelTypes.NodeLabel -> 
+            evalulateVar varDic expr
+            :?> NodeLabel
+            |> string
+            |> stepBuilder.AddStatement
+        | LabelTypes.RelLabel ->
+            let rec inner (expr : Expr) =
+                match expr with
+                | SpecificCall <@@ (/) @@> (_, _, xs) -> List.sumBy inner xs
+                | _ -> evalulateVar varDic expr :?> RelLabel
+
+            inner expr
+            |> string
+            |> stepBuilder.AddStatement
+        | LabelTypes.NodeLabelList ->
+            match expr with
+            | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
+            | _ -> evalulateVar varDic expr :?> NodeLabel list
+            |> List.iter (string >> stepBuilder.AddStatement)
+    
+    let (|IsIFSLabelTuple|_|) (expr : Expr) =
+        match expr with
+        | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && NodeLabel.IsLabel label.Type ->
+            Some (entity, label, LabelTypes.NodeLabel)
+        | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && RelLabel.IsLabel label.Type ->
+            Some (entity, label, LabelTypes.RelLabel)
+        | NewTuple [ entity; NewUnionCase ui ] when (fst ui).Name = "Cons" -> 
+            Some (entity, Expr.NewUnionCase ui, LabelTypes.NodeLabelList)
         | _ -> None
 
     let (|AS|_|) (expr : Expr) =
@@ -245,37 +294,33 @@ module private BasicClause =
 
 module private RemoveClause =
 
+    open Helpers
+
+    let extractStatement (stepBuilder : StepBuilder) (varDic : VarDic) (entity, label, labelType) =
+        match entity with
+        | Var v -> stepBuilder.AddStatement v.Name
+        | PropertyGet (Some (Var v), pi, _) ->
+            stepBuilder.AddStatement v.Name
+            stepBuilder.AddStatement "."
+            stepBuilder.AddStatement pi.Name
+        | PropertyGet (None, pi, _) -> stepBuilder.AddStatement pi.Name
+        | _ ->
+            entity
+            |> sprintf "Label SET/REMOVE: Couldn't extact entity : %A"
+            |> invalidOp
+
+        makeLabel stepBuilder varDic labelType label
+
     let make (stepBuilder : StepBuilder) (varDic : VarDic) (expr : Expr) =
-
-        let (|IsRemove|) (expr : Expr) =
-            let rec inner (expr : Expr) =
-                match expr with
-                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && NodeLabel.IsLabel label.Type ->
-                    inner entity
-                    Helpers.extractObject varDic label
-                    :?> NodeLabel
-                    |> string
-                    |> stepBuilder.AddStatement
-                | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && RelLabel.IsLabel label.Type ->
-                    inner entity
-                    Helpers.extractObject varDic label
-                    :?> RelLabel
-                    |> string
-                    |> stepBuilder.AddStatement
-                | Var v -> stepBuilder.AddStatement v.Name
-                | PropertyGet (Some expr, _, []) -> inner expr
-                | _ ->
-                    expr
-                    |> sprintf "REMOVE. Trying to extract statement but couldn't match expression: %A"
-                    |> invalidOp
-            inner expr
-
         let rec inner expr =
             match expr with
-            | Let (_, _, expr) | Lambda (_, expr) -> inner expr
-            | NewTuple exprs ->
-                exprs |> List.iteri (StepBuilder.JoinTuple (function IsRemove -> ()) stepBuilder)
-            | _ -> sprintf "REMOVE statements must be in the form of: REMOVE ((node, Label), (rel, Label), ..). You passed in: %A" expr |> invalidOp
+            | Let (_, _, expr) 
+            | Lambda (_, expr) -> inner expr
+            | IsIFSLabelTuple res -> extractStatement stepBuilder varDic res
+            | NewTuple exprs -> exprs |> List.iteri (StepBuilder.JoinTuple inner stepBuilder)
+            | _ -> 
+                sprintf "REMOVE statements must be in the form of: REMOVE ((node, Label), (rel, Label), ..). You passed in: %A" expr 
+                |> invalidOp
 
         inner expr
 
@@ -296,19 +341,8 @@ module private UnwindClause =
 module private MatchClause =
 
     open Helpers
-
+    
     let make (stepBuilder : StepBuilder) (varDic : VarDic) expr =
-
-        // Use these since match statements happy with typeof<_>
-        let typedefofNode = typedefof<Node<_>>
-        let typedefofRel = typedefof<Rel<_>>
-        let typedefofIFSNode = typedefof<IFSNode<_>>
-        let typedefofIFSRelationship = typedefof<IFSRel<_>>
-        let typeofNodeLabel = typeof<NodeLabel>
-        let typeofNodeLabelList = typeof<NodeLabel list>
-        let typeofRelLabel = typeof<RelLabel>
-        let typeofUInt32 = typeof<uint32>
-        let typeofUInt32List = typeof<uint32 list>
 
         let makeIFS (expr : Expr) =
 
@@ -380,7 +414,7 @@ module private MatchClause =
                 match expr with
                 | Var var when var.Type = typeofUInt32 -> QuotationEvaluator.EvaluateUntyped varDic.[var.Name] |> Some
                 | Value (o, t) when t =typeofUInt32 -> Some o
-                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> extractObject varDic expr |> Some
+                | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32 -> evalulateVar varDic expr |> Some
                 | _ -> None
 
             let (|IntList|_|) (expr : Expr) =
@@ -388,7 +422,7 @@ module private MatchClause =
                 | Var var when var.Type = typeofUInt32List -> makeListFromExpr varDic.[var.Name] |> Some
                 | Value (_, t) when t = typeofUInt32List -> makeListFromExpr expr |> Some
                 | PropertyGet (_, pi, _) when pi.PropertyType = typeofUInt32List ->
-                    extractObject varDic expr
+                    evalulateVar varDic expr
                     :?> uint32 list
                     |> makeListRng
                     ||> makeStatement
@@ -429,79 +463,57 @@ module private MatchClause =
             | ctr, [ param1; param2; param3 ] when ctr = paramTypes -> Some (param1, param2, param3)
             | _ -> None
 
-        let makeRelLabel (expr : Expr) =
-            let rec inner (expr : Expr) =
-                match expr with
-                | SpecificCall <@@ (/) @@> (_, _, xs) -> List.sumBy inner xs
-                | _ -> extractObject varDic expr :?> RelLabel
-
-            inner expr
-            |> string
-            |> stepBuilder.AddStatement
-
         let makeRel (ctrTypes : Type []) (ctrExpr : Expr list) =
             stepBuilder.AddStatement "["
             match ctrTypes, ctrExpr with
             | NoParams -> ()
             | SingleParam [| typedefofIFSRelationship |] param -> makeIFS param
-            | SingleParam [| typeofRelLabel |] param  -> makeRelLabel param
+            | SingleParam [| typeofRelLabel |] param  -> makeLabel stepBuilder varDic LabelTypes.RelLabel param
             | SingleParam [| typeofUInt32 |] param
             | SingleParam [| typeofUInt32List |] param -> makePathHops param
             | TwoParams [| typedefofIFSRelationship; typeofRelLabel |] (param1, param2) ->
                 makeIFS param1
-                makeRelLabel param2
+                makeLabel stepBuilder varDic LabelTypes.RelLabel param2
             | TwoParams [| typeofRelLabel; typeofUInt32 |] (param1, param2) ->
-                makeRelLabel param1
+                makeLabel stepBuilder varDic LabelTypes.RelLabel param1
                 makePathHops param2
             | TwoParams [| typeofRelLabel; typeofUInt32List |] (param1, param2) ->
-                makeRelLabel param1
+                makeLabel stepBuilder varDic LabelTypes.RelLabel param1
                 makePathHops param2
             | ThreeParams [| typedefofIFSRelationship; typeofRelLabel; typedefofIFSRelationship |] (param1, param2, param3) ->
                 makeIFS param1
-                makeRelLabel param2
+                makeLabel stepBuilder varDic LabelTypes.RelLabel param2
                 stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Rel constructor: %A" ctrTypes |> invalidOp
 
             stepBuilder.AddStatement "]"
 
-        let makeNodeLabelList (expr : Expr) =
-            match expr with
-            | NewUnionCase (ui, _) when ui.Name = "Cons" -> QuotationEvaluator.EvaluateUntyped expr :?> NodeLabel list
-            | _ -> extractObject varDic expr :?> NodeLabel list
-            |> List.iter (string >> stepBuilder.AddStatement)
-
-        let makeNodeLabel expr =
-            extractObject varDic expr
-            :?> NodeLabel
-            |> string
-            |> stepBuilder.AddStatement
-
         let makeNode (ctrTypes : Type []) (ctrExpr : Expr list) =
             stepBuilder.AddStatement "("
             match ctrTypes, ctrExpr with
             | NoParams -> ()
-            | SingleParam [| typeofNodeLabel |] param -> makeNodeLabel param
-            | SingleParam [| typeofNodeLabelList |] param -> makeNodeLabelList param
+            | SingleParam [| typeofNodeLabel |] param -> makeLabel stepBuilder varDic LabelTypes.NodeLabel param
+            | SingleParam [| typeofNodeLabelList |] param -> makeLabel stepBuilder varDic LabelTypes.NodeLabelList param
             | SingleParam [| typedefofIFSNode |] param -> makeIFS param
             | TwoParams [| typedefofIFSNode; typeofNodeLabel |] (param1, param2) ->
                 makeIFS param1
-                makeNodeLabel param2
+                makeLabel stepBuilder varDic LabelTypes.NodeLabel param2
             | TwoParams [| typedefofIFSNode; typeofNodeLabelList |] (param1, param2) ->
                 makeIFS param1
-                makeNodeLabelList param2
+                makeLabel stepBuilder varDic LabelTypes.NodeLabelList param2
             | TwoParams [| typedefofIFSNode; typedefofIFSNode |] (param1, param2) ->
                 makeIFS param1
                 stepBuilder.AddStatement " "
                 makeIFS param2
             | ThreeParams [| typedefofIFSNode; typeofNodeLabel; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
-                makeNodeLabel param2
+                makeLabel stepBuilder varDic LabelTypes.NodeLabel param2
                 stepBuilder.AddStatement " "
                 makeIFS param3
             | ThreeParams [| typedefofIFSNode; typeofNodeLabelList; typedefofIFSNode |] (param1, param2, param3) ->
                 makeIFS param1
-                makeNodeLabelList param2
+                makeLabel stepBuilder varDic LabelTypes.NodeLabelList param2
                 stepBuilder.AddStatement " "
                 makeIFS param3
             | _ -> sprintf "Unexpected Node constructor: %A" ctrTypes |> invalidOp
@@ -554,7 +566,9 @@ module private MatchClause =
 
 module private WhereSetClause =
     // TODO : full setting of node / rel
-    let make (stepBuilder : StepBuilder) (expr : Expr) =
+    open Helpers
+
+    let make (stepBuilder : StepBuilder) (varDic : VarDic) (expr : Expr) =
 
         let buildState fExpr left symbol right =
             fExpr left
@@ -580,6 +594,7 @@ module private WhereSetClause =
             | Operator OpNotEqual inner finalState -> finalState
             | IfThenElse (left, right, Value(_, _)) -> buildState inner left "AND" right
             | IfThenElse (left, Value(_, _), right) -> buildState inner left "OR" right
+            | IsIFSLabelTuple res -> RemoveClause.extractStatement stepBuilder varDic res
             | NewTuple exprs -> exprs |> List.iteri (StepBuilder.JoinTuple inner stepBuilder)
             | NewUnionCase (_, [ singleCase ]) -> inner singleCase
             | NewUnionCase (ui, []) when ui.Name = "None" -> stepBuilder.AddType expr
@@ -786,9 +801,9 @@ module CypherBuilder =
 
         member _.For (source : Query<'T,'Result>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
-        member _.For (source : IFSNode<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
+        member _.For (source : Node<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
-        member _.For (source : IFSRel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
+        member _.For (source : Rel<'T>, body : 'T -> Query<'T2, unit>) : Query<'T2, unit> = Q
 
         member _.Quote (source : Expr<Query<'T,'Result>>) = Q
 
@@ -824,7 +839,7 @@ module CypherBuilder =
             let (|WhereSet|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
                 | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) ->
-                    WhereSetClause.make stepBuilder thisStep
+                    WhereSetClause.make stepBuilder varDic thisStep
                     Some stepAbove
                 | _ -> None
 
