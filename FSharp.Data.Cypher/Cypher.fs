@@ -281,6 +281,6 @@ module Cypher =
 
         let asyncRun driver cypher = asyncRunMap driver id cypher
 
-        let runMap driver map cypher = async.Return (runMap driver map cypher)
+        let runMap driver map cypher = asyncRunMap driver map cypher |> Async.RunSynchronously
 
         let run (driver : IDriver) cypher = runMap driver id cypher

@@ -35,6 +35,17 @@ module ``Can deserialize all`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Movie>, x))
+    
+    [<Fact>]
+    let moviesTitles () =
+        cypher {
+            for m in Graph.Movie do
+            MATCH (Node(m, m.Label))
+            RETURN m.title
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<string>, x))
 
     [<Fact>]
     let people () =

@@ -14,41 +14,41 @@ module ``Can build`` =
         |> String.concat " "
         |> fun s -> "MATCH (outerNodes) " + s + String.replicate count ")"
 
-    [<Fact>]
-    let ``Basic statement`` () =
-        cypher {
-            for outerNodes in Graph.NodeOfType do
-            MATCH (Node outerNodes)
-            FOREACH { for innerNode in outerNodes do SET (innerNode.IntValue = 5) }
-        }
-        |> Cypher.queryRaw
-        |> fun q -> Assert.Equal(basicStm 1, q)
+    //[<Fact>]
+    //let ``Basic statement`` () =
+    //    cypher {
+    //        for outerNodes in Graph.NodeOfType do
+    //        MATCH (Node outerNodes)
+    //        FOREACH { for innerNode in outerNodes do SET (innerNode.IntValue = 5) }
+    //    }
+    //    |> Cypher.queryRaw
+    //    |> fun q -> Assert.Equal(basicStm 1, q)
 
-    [<Fact>]
-    let ``Nested FOREACH`` () =
-        cypher {
-            for outerNodes in Graph.NodeOfType do
-            MATCH (Node outerNodes)
-            FOREACH {
-                for innerNode in outerNodes do
-                SET (innerNode.IntValue = 5)
-                FOREACH {
-                    for innerNode in outerNodes do
-                    SET (innerNode.IntValue = 5)
-                    FOREACH {
-                        for innerNode in outerNodes do
-                        SET (innerNode.IntValue = 5)
-                        FOREACH {
-                            for innerNode in outerNodes do
-                            SET (innerNode.IntValue = 5)
-                            FOREACH {
-                                for innerNode in outerNodes do
-                                SET (innerNode.IntValue = 5)
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        |> Cypher.queryRaw
-        |> fun q -> Assert.Equal(basicStm 5, q)
+    //[<Fact>]
+    //let ``Nested FOREACH`` () =
+    //    cypher {
+    //        for outerNodes in Graph.NodeOfType do
+    //        MATCH (Node outerNodes)
+    //        FOREACH {
+    //            for innerNode in outerNodes do
+    //            SET (innerNode.IntValue = 5)
+    //            FOREACH {
+    //                for innerNode in outerNodes do
+    //                SET (innerNode.IntValue = 5)
+    //                FOREACH {
+    //                    for innerNode in outerNodes do
+    //                    SET (innerNode.IntValue = 5)
+    //                    FOREACH {
+    //                        for innerNode in outerNodes do
+    //                        SET (innerNode.IntValue = 5)
+    //                        FOREACH {
+    //                            for innerNode in outerNodes do
+    //                            SET (innerNode.IntValue = 5)
+    //                        }
+    //                    }
+    //                }
+    //            }
+    //        }
+    //    }
+    //    |> Cypher.queryRaw
+    //    |> fun q -> Assert.Equal(basicStm 5, q)

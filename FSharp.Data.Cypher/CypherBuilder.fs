@@ -287,6 +287,7 @@ module private BasicClause =
             match expr with
             | Let (_, _, expr) | Lambda (_, expr) -> inner expr
             | Value _ | Var _ | PropertyGet _ -> extractStatement expr
+            | Helpers.AS (v, fStatement) -> fStatement stepBuilder
             | NewTuple exprs -> exprs |> List.iteri (StepBuilder.JoinTuple extractStatement stepBuilder)
             | _ -> sprintf "BASIC CLAUSE: Unrecognized expression: %A" expr |> invalidOp
 
@@ -713,9 +714,9 @@ module CypherBuilder =
 
         member _.For (source : ForEachQuery<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
-        member _.For (source : IFSNode<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
-
-        member _.For (source : IFSRel<'T>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+        member _.For (source : AS<#IFSEntity<'T> list>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+        
+        member _.For (source : #IFSEntity<'T> list, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
         member _.Quote (source : Expr<ForEachQuery<'T>>) = FEQ
 

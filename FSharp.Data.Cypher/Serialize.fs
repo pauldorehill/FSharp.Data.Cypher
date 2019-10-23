@@ -108,7 +108,7 @@ module Deserialization =
 
         let nullCheck (obj : obj) =
             if isNull obj then
-                sprintf "A null object was returned for %s on type %A" name rtnType.Name
+                sprintf "A null object was returned for %s of type %A" name rtnType.Name
                 |> ArgumentNullException
                 |> raise
             else obj
@@ -193,8 +193,17 @@ module Deserialization =
     // Or use of quotations as an equvialent
     let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, rtnType : Type) =
         match rtnType with
-        | v when isIFSNode v -> continuation.[key] :?> INode |> complexTypes rtnType
-        | v when isIFSRel v -> continuation.[key] :?> IRelationship |> complexTypes rtnType
+        | rtnTyp when isIFSNode rtnTyp -> continuation.[key] :?> INode |> complexTypes rtnType
+        | rtnTyp when rtnTyp.IsGenericType 
+            && rtnTyp.GetGenericTypeDefinition() = typedefof<_ list>
+            && isIFSNode rtnTyp.GenericTypeArguments.[0] ->
+                continuation.[key] 
+                :?> ResizeArray<obj>
+                |> Seq.cast<INode>
+                |> Seq.map (complexTypes rtnTyp.GenericTypeArguments.[0]) //TODO this needs to be the list type
+                |> List.ofSeq
+                |> box
+        | rtnTyp when isIFSRel rtnTyp -> continuation.[key] :?> IRelationship |> complexTypes rtnType
         | _ -> coreTypes rtnType key continuation.[key]
         |> fun rtnObj -> Expr.Value(rtnObj, rtnType)
 

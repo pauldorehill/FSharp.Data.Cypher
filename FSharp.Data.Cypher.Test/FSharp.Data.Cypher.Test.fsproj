@@ -11,6 +11,7 @@
     <Compile Include="Match.fs" />
     <Compile Include="Return.fs" />
     <Compile Include="WhereSet.fs" />
+    <Compile Include="Remove.fs" />
     <Compile Include="Basic.fs" />
     <Compile Include="As.fs" />
     <Compile Include="ForEach.fs" />

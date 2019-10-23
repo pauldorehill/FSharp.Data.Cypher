@@ -9,19 +9,19 @@ module MovieGraph =
         { title : string
           tagline : string option
           released : int }
-        interface IFSNode<Movie>
         member _.Label = NodeLabel "Movie"
+        interface IFSNode<Movie>
 
     type Person =
         { born : int option
           name : string }
-        interface IFSNode<Person>
         member _.Label = NodeLabel "Person"
+        interface IFSNode<Person>
 
     type ActedIn =
         { roles : string [] }
-        interface IFSRel<ActedIn>
         member _.Label = RelLabel "ACTED_IN"
+        interface IFSRel<ActedIn>
 
     type Directed =
         private | NA

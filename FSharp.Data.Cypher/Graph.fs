@@ -2,15 +2,20 @@
 
 open System
 
+// Used to get FOREACH to be happy..
+/// Marker interface for a type that is part of the graph
+type IFSEntity<'T> = interface end
+
 /// Marker interface for a type that is a Node
-type IFSNode<'N> = interface end
+type IFSNode<'N> = inherit IFSEntity<'N>
 
 /// Marker interface for a type that is a Relationship
-type IFSRel<'R> = interface end
+type IFSRel<'R> = inherit IFSEntity<'R>
 
 [<Sealed; NoComparison; NoEquality>]
 type AS<'T>() =
     member _.AS (variable : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
+    member _.Value : 'T = invalidOp "AS.Value should never be called"
 
 [<AbstractClass; Sealed>]
 type AS =
