@@ -35,7 +35,7 @@ Most clauses are avalible, working, and have tests. This documentation will also
 ## Contents
 - [Differences with Cypher](#Differences-with-Cypher)
 - [OPTIONAL MATCH and null](#OPTIONAL-MATCH-and-null)
-- [The FOREACH Clause](#The-FOREACH-Clause)
+- [FOREACH Clause](#FOREACH-Clause)
 - [Supported Types](#Supported-Types)
 - [Parameterization](#Parameterization)
 - [Running a Query](#Running-a-Query)
@@ -131,11 +131,17 @@ Unfortunately from an F# perspective [null](https://neo4j.com/docs/cypher-manual
 
 OPTIONAL MATCH currenly throws a spanner in the works since it will happily return `null` in place of node or relationship. When this is returned from the database the deserilizer will still be expecting a node, sees `null` and will intentionally throw `ArgumentNullException`. There is a nice solution coming for this where the OPTIONAL MATCH query will only work with a record option... comming soon.
 
-## The FOREACH Clause
+## FOREACH Clause
 [FOREACH](https://neo4j.com/docs/cypher-manual/current/clauses/foreach/) is a special type of clause in cypher... as such it is implemented as its own builder of type `Foreach`. It is then used inside the `cypher {  }` builder and `ForEach`'s can be nested within other `ForEach`'s
 ```fsharp
-
-
+cypher {
+    for person in Graph.Person do
+    let people = AS<Person list>()
+    MATCH (Node (person, person.Label))
+    WITH (collect(person) .AS people, person)
+    FOREACH { for p in people do SET (p, NodeLabel "ForEach") }
+    RETURN person
+}
 ```
 
 ## Supported Types
@@ -224,7 +230,7 @@ let results : Person [] = TransactionResult.results transactionResult
 // Commit the results -> all names in database now set.
 let commmit : QueryResult<Person> = TransactionResult.commit transactionResult
 
-// Rollback: so there is no change to the database
+// Rollback -> there is no change to the database
 let rollBack : unit = TransactionResult.rollback transactionResult
 ```
 
