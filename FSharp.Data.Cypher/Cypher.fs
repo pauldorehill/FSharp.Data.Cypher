@@ -131,6 +131,20 @@ type Query (steps : CypherStep list) =
     member _.IsWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
     member _.Parameters = steps |> List.collect (fun cs -> cs.Parameters)
 
+module Query =
+    
+    let raw (query : Query) = query.Raw
+
+    let rawMultiline (query : Query) = query.RawMultiline
+
+    let parameterized  (query : Query) = query.Parameterized
+
+    let parameterizedMultiline (query : Query) = query.ParameterizedMultiline
+
+    let parameters (query : Query) = query.Parameters
+
+    let isWrite (query : Query) = query.IsWrite
+
 type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
     member _.Results = results
     member _.Summary = summary
@@ -240,9 +254,9 @@ module Cypher =
         | Some continuation -> continuation di
         | None -> invalidOp "No RETURN clause given when running spoof."
 
-    let queryRaw (cypher : Cypher<'T>) = cypher.Query.Raw
-
-    let queryParameterized (cypher : Cypher<'T>) = cypher.Query.Parameterized
+    let query (cypher : Cypher<'T>) = cypher.Query
+    
+    let continuation (cypher : Cypher<'T>) = cypher.Continuation
 
     /// Returns a TransactionResult - where the transation needs to be commited to the database or rolled back manually
     module Explicit =

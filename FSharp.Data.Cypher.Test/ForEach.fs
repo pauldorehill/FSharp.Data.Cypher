@@ -24,7 +24,8 @@ module ``Can build`` =
             WITH (collect(outerNodes) .AS nodeList)
             FOREACH { for innerNode in nodeList do SET (innerNode.IntValue = 5) }
         }
-        |> Cypher.queryRaw
+        |> Cypher.query 
+        |> Query.raw
         |> fun q -> Assert.Equal(basicStm 1, q)
 
     [<Fact>]
@@ -54,5 +55,6 @@ module ``Can build`` =
                 }
             }
         }
-        |> Cypher.queryRaw
+        |> Cypher.query 
+        |> Query.raw
         |> fun q -> Assert.Equal(basicStm 5, q)

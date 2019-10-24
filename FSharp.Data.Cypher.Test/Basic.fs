@@ -10,7 +10,8 @@ module ``Can build`` =
         cypher {
             DELETE ()
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("DELETE null", q)
 
 namespace FSharp.Data.Cypher.Test.DETACH_DELETE
@@ -25,7 +26,8 @@ module ``Can build`` =
         cypher {
             DETACH_DELETE ()
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("DETACH DELETE null", q)
 
 namespace FSharp.Data.Cypher.Test.ORDER_BY
@@ -40,7 +42,8 @@ module ``Can build`` =
         cypher {
             ORDER_BY ()
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("ORDER BY null", q)
 
 namespace FSharp.Data.Cypher.Test.DESC
@@ -55,7 +58,8 @@ module ``Can build`` =
         cypher {
             DESC
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("DESC", q)
 
     [<Fact>]
@@ -64,7 +68,8 @@ module ``Can build`` =
             ORDER_BY 42
             DESC
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("ORDER BY 42 DESC", q)
 
 namespace FSharp.Data.Cypher.Test.ASC
@@ -79,7 +84,8 @@ module ``Can build`` =
         cypher {
             ASC
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("ASC", q)
 
     [<Fact>]
@@ -88,7 +94,8 @@ module ``Can build`` =
             ORDER_BY 42
             ASC
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("ORDER BY 42 ASC", q)
 
 namespace FSharp.Data.Cypher.Test.SKIP
@@ -103,7 +110,8 @@ module ``Can build`` =
         cypher {
             SKIP 42L
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("SKIP 42", q)
 
 namespace FSharp.Data.Cypher.Test.LIMIT
@@ -118,7 +126,8 @@ module ``Can build`` =
         cypher {
             LIMIT 42L
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("LIMIT 42", q)
 
 namespace FSharp.Data.Cypher.Test.WITH
@@ -133,7 +142,8 @@ module ``Can build`` =
         cypher {
             WITH 42L
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("WITH 42", q)
 
     [<Fact>]
@@ -141,7 +151,8 @@ module ``Can build`` =
         cypher {
             WITH (42L, "EMU", 42.1)
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("WITH 42, \"EMU\", 42.1", q)
 
 namespace FSharp.Data.Cypher.Test.UNION
@@ -156,7 +167,8 @@ module ``Can build`` =
         cypher {
             UNION
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("UNION", q)
 
 namespace FSharp.Data.Cypher.Test.UNION_ALL
@@ -171,5 +183,6 @@ module ``Can build`` =
         cypher {
             UNION_ALL
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("UNION ALL", q)

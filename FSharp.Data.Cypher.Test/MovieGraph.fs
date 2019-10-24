@@ -1,6 +1,5 @@
 ﻿namespace FSharp.Data.Cypher.Test.MovieGraph
 
-open Neo4j.Driver
 open FSharp.Data.Cypher
 open FSharp.Data.Cypher.Test
 open Xunit
@@ -95,7 +94,6 @@ module ``Can deserialize all`` =
     let produced () =
         cypher {
             for pr in Graph.Produced do
-
             MATCH (Node() -- Rel(pr, pr.Label) -- Node())
             RETURN pr
         }
@@ -180,4 +178,21 @@ module ``Aggregations`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun x -> Assert.IsType(typeof<Person []>, x)
+
+module ``Operator Testing`` =
+
+    [<Fact>]
+    let movies () =
+        cypher {
+            for movie in Graph.Movie do
+            for actor1 in Graph.Person do
+            for director in Graph.Person do
+            for actedIn in Graph.ActedIn do
+            for directed in Graph.Directed do
+            MATCH (Node(actor1, actor1.Label) -- Rel actedIn --> Node(movie, movie.Label) <-- Rel directed -- Node(director, director.Label))
+            RETURN movie
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Movie>, x))
     

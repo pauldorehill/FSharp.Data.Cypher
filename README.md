@@ -84,7 +84,7 @@ In cypher a node `(..)` consists of 3 optional parts: the `binding name`, a `lab
 
 ```(n:Label1 {property1: value1, property2: value2})```
 
-In the F# builder match these 3 parts as parameters to a `Node()` constructor and we are done:
+In the F# builder match these 3 parts as parameters to a `Node()` constructor:
 
 ```fsharp
 Node(n, Label1, { n with { property1 = value1; property2 = value 2 })
@@ -95,7 +95,7 @@ In cypher a relationship `[..]` consists of 3 optional parts: the `binding name`
 
 ```[r:Label1 {property1: value1, property2: value2}]```
 
-In the F# builder match these 3 parts as parameters to a `Rel()` constructor and we are done:
+In the F# builder match these 3 parts as parameters to a `Rel()` constructor:
 
 ```fsharp
 Rel(n, Label1, { n with { property1 = value1; property2 = value 2 })

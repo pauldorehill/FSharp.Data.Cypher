@@ -127,13 +127,15 @@ type Node<'N>() =
     
     static member ( <---- ) (n1 : Node<'N>, n2 : Node<'N>) = n1
 
-    //static member ( -- ) (n : Node<'N>, r : Rel<'R>) = n
+    static member ( -- ) (n : Node<'N>, r : Rel<'R>) = r
 
-    //static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
+    static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
 
-    //static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
-
-    //static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = n
+    static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
+    
+    static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = r
+    
+    static member ( <-- ) (n : Node<'N>, n2 : Node<'R>) = n // Need this due to operator precedence of -- over <--
 
 [<AbstractClass; Sealed>]
 type Node =
@@ -149,11 +151,11 @@ module Ascii =
     // Quotations cannot contain expressions that make member constraint calls,
     // or uses of operators that implicitly resolve to a member constraint call
 
-    let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1
+    let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1 -- graphEntity2
 
-    let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1
+    let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1 --> graphEntity2
 
-    let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1
+    let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1 <-- graphEntity2
 
     let inline ( ---- ) node1 node2 = node1 ---- node2
 

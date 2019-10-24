@@ -14,7 +14,8 @@ module ``Can build`` =
             for n in Graph.NodeOfType do
             REMOVE (n, n.Label)
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("REMOVE n:NodeLabel", q)
 
     [<Fact>]
@@ -23,7 +24,8 @@ module ``Can build`` =
             for n in Graph.NodeOfType do
             REMOVE ((n, n.Label), (n, n.Label))
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("REMOVE n:NodeLabel, n:NodeLabel", q)
 
     [<Fact>]
@@ -33,7 +35,8 @@ module ``Can build`` =
                 for n in Graph.NodeOfType do
                 REMOVE (n.FloatValue = 5.5)
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> ignore
 
         Assert.Throws(typeof<InvalidOperationException>, fmake)
@@ -44,5 +47,6 @@ module ``Can build`` =
             for n in Graph.NodeOfType do
             REMOVE (n, [ n.Label; n.Label])
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("REMOVE n:NodeLabel", q)

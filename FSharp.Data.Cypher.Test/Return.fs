@@ -15,7 +15,8 @@ module ``Query Building`` =
             cypher {
                 RETURN true
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN true", r)
 
         [<Fact>]
@@ -23,7 +24,8 @@ module ``Query Building`` =
             cypher {
                 RETURN false
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN false", r)
 
         [<Fact>]
@@ -31,7 +33,8 @@ module ``Query Building`` =
             cypher {
                 RETURN 5
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN 5", r)
 
         [<Fact>]
@@ -39,7 +42,8 @@ module ``Query Building`` =
             cypher {
                 RETURN 5L
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN 5", r)
 
         [<Fact>]
@@ -47,7 +51,8 @@ module ``Query Building`` =
             cypher {
                 RETURN 5.5
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN 5.5", r)
 
         [<Fact>]
@@ -55,7 +60,8 @@ module ``Query Building`` =
             cypher {
                 RETURN "EMU"
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN \"EMU\"", r)
 
         [<Fact>]
@@ -63,7 +69,8 @@ module ``Query Building`` =
             cypher {
                 RETURN "EM\U"
             }
-            |> Cypher.queryRaw
+            |> Cypher.query
+            |> Query.raw
             |> fun r -> Assert.Equal("RETURN \"EM\\\\U\"", r)
 
 module ``Deserialize: Spoofed Results`` =
@@ -299,5 +306,6 @@ module ``Can build`` =
         cypher {
             RETURN_DISTINCT ()
         }
-        |> Cypher.queryRaw
+        |> Cypher.query
+        |> Query.raw
         |> fun q -> Assert.Equal("RETURN DISTINCT null", q)
