@@ -36,7 +36,7 @@ module TypeHelpers =
         let mutable uCIFields = None
         let isSingleCase() =
             let u = FSharpType.GetUnionCases(typ, bindingFlags)
-            let fields = u.[0].GetFields() // Handle named fields vs Item
+            let fields = u.[0].GetFields() // TODO: Handle named fields vs Item
             if u.Length = 1 && fields.Length <= 1 then
                 uCI <- Some u.[0]
                 uCIFields <- Some fields
@@ -212,7 +212,7 @@ module Deserialization =
         (items, emptyList)
         ||> Seq.foldBack (fun x list -> 
             let item = x :?> IEntity |> complexTypes listGenericType
-            cons.Invoke(list, [| item; list|]))
+            cons.Invoke(list, [| item; list |]))
 
     let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, rtnType : Type) =
         match rtnType with

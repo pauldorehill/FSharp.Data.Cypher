@@ -91,7 +91,7 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
 
 type Query (steps : CypherStep list) =
     let sb = Text.StringBuilder()
-    let makeQuery (multiline : bool) (paramterized : bool) =
+    let makeQuery (multiline : bool) (parameterized : bool) =
         let add (s : string) = sb.Append s |> ignore
         let mutable count : int = 1
         let mutable isForEach = false
@@ -111,9 +111,13 @@ type Query (steps : CypherStep list) =
 
             if step.Statement <> "" then
                 add " "
-                if paramterized then add step.Statement else add step.RawStatement
+                if parameterized then add step.Statement else add step.RawStatement
 
-            if multiline && isForEach && step.RawStatement.EndsWith ")" then unPad()
+            if multiline && isForEach then 
+                step.RawStatement.ToCharArray() 
+                |> Array.rev
+                |> Array.takeWhile ((=) ')')
+                |> Array.iter (fun _ -> unPad())
 
             if count < steps.Length then
                 if multiline then add Environment.NewLine else add " "
@@ -249,6 +253,7 @@ module Cypher =
 
     let run (driver : IDriver) cypher = runMap driver id cypher
 
+    /// Use to pass in dummy test data for testing of RETURN deserilization. Throws when there is no RETURN clause
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
         match cypher.Continuation with
         | Some continuation -> continuation di
@@ -258,7 +263,8 @@ module Cypher =
     
     let continuation (cypher : Cypher<'T>) = cypher.Continuation
 
-    /// Returns a TransactionResult - where the transation needs to be commited to the database or rolled back manually
+    /// Returns a TransactionResult - where the transaction needs to be 
+    /// commited to the database or rolled back manually
     module Explicit =
 
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
