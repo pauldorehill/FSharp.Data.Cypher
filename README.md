@@ -91,7 +91,7 @@ Node(n, Label1, { n with { property1 = value1; property2 = value 2 })
 ```
 
 #### Relationships
-In cypher a relationship `[..]` consists of 3 optional parts: the `binding name`, a `label` (or offically `Type`), and `property values`:
+In cypher a relationship `[..]` consists of 3 optional parts: the `binding name`, a `label` (or officially `Type`), and `property values`:
 
 ```[r:Label1 {property1: value1, property2: value2}]```
 
@@ -113,7 +113,7 @@ Cypher | FSharp
 
 #### AS
 
-To use name aliases (required for aggregrating and other functions) there is the `AS<'T>()` type with a member to `AS : AS<'T> -> 'T`. The variable is defined up front then passed into the `AS` member:
+To use name aliases (required for aggregating and other functions) there is the `AS<'T>()` type with a member to `AS : AS<'T> -> 'T`. The variable is defined up front then passed into the `AS` member:
 
 ```fsharp
 cypher {
@@ -126,10 +126,10 @@ cypher {
 ## OPTIONAL MATCH and null
 
 Unfortunately from an F# perspective [null](https://neo4j.com/docs/cypher-manual/current/syntax/working-with-null/) is *'...is used to represent missing or undefined values...'* and this has the potential to all null into your program. With core types (`string, int, float etc...`):
-- If null is encounterd an `ArgumentNullException` will be thrown i.e. you won't be able to create a `record` with a null field, or return a core type of null
+- If null is encountered an `ArgumentNullException` will be thrown i.e. you won't be able to create a `record` with a null field, or return a core type of null
 - If your `record` field  or return type is an `'T option`,  `null` will happily become `None`
 
-OPTIONAL MATCH currenly throws a spanner in the works since it will happily return `null` in place of node or relationship. When this is returned from the database the deserilizer will still be expecting a node, sees `null` and will intentionally throw `ArgumentNullException`. There is a nice solution coming for this where the OPTIONAL MATCH query will only work with a record option... comming soon.
+OPTIONAL MATCH currently throws a spanner in the works since it will happily return `null` in place of node or relationship. When this is returned from the database the deserilizer will still be expecting a node, sees `null` and will intentionally throw `ArgumentNullException`. There is a nice solution coming for this where the OPTIONAL MATCH query will only work with a record option... coming soon.
 
 ## FOREACH Clause
 [FOREACH](https://neo4j.com/docs/cypher-manual/current/clauses/foreach/) is a special type of clause in cypher... as such it is implemented as its own builder of type `Foreach`. It is then used inside the `cypher {  }` builder and `ForEach`'s can be nested within other `ForEach`'s
@@ -163,11 +163,11 @@ type Produced() =
     member _.Label = RelLabel "PRODUCED"
     interface IFSRel<Produced>
 ```
-Some support for DUs will be implimented at a later date... classes are harder still.
+Some support for DUs will be implemented at a later date... classes are harder still.
 
-## Parameterization and Queries
+## Parameterization
 
-All queries are paramterized by default and sent as a single line of text. You are able to access both the raw and parameterized query by calling the `Query` member on `CypherBuilder` (and their equivalent multiline versions). For the example at the top:
+All queries are parameterized by default and sent as a single line of text. You are able to access both the raw and parameterized query by calling the `Query` member on `CypherBuilder` (and their equivalent multiline versions). For the example at the top:
 
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie)
@@ -191,10 +191,10 @@ LIMIT 1
 
 ## Running a Query
 
-To run a query you need a `IDriver` instance from the standard `Neo4j.Driver` driver. Querys come in two flavours see the [docs](https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions) for more info.
+To run a query you need a `IDriver` instance from the standard `Neo4j.Driver` driver. Queries come in two flavours see the [docs](https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions) for more info.
 
 #### Transaction Functions : `Cypher<'T> -> QueryResult<'T>`
-These are automatically commited to the database
+These are automatically committed to the database
 
 ```fsharp
 let driver = GraphDatabase.Driver( ... )
@@ -211,7 +211,7 @@ let summary : IResultSummary = QueryResult.summary result
 ```
 
 #### Explicit Transactions : `Cypher<'T> -> TransactionResult<'T>`
-The query is sent to the database where it is run and returns the results - **however it is not commited** e.g. the database is not updated. The `TransactionResult` should then be either commited or rolled back to the database manually: this will need to happen before any subsequent queries.
+The query is sent to the database where it is run and returns the results - **however it is not committed** e.g. the database is not updated. The `TransactionResult` should then be either committed or rolled back to the database manually: this will need to happen before any subsequent queries.
 
 ```fsharp
 let transactionResult =
@@ -223,12 +223,12 @@ let transactionResult =
     }
     |> Cypher.Explicit.run driver
 
-// Results availible and have name = "NewName", but are not committed to database
+// Results available and have name = "NewName", but are not committed to database
 // i.e. they would all still have their original names if you were to query them now
 let results : Person [] = TransactionResult.results transactionResult
 
 // Commit the results -> all names in database now set.
-let commmit : QueryResult<Person> = TransactionResult.commit transactionResult
+let commit : QueryResult<Person> = TransactionResult.commit transactionResult
 
 // Rollback -> there is no change to the database
 let rollBack : unit = TransactionResult.rollback transactionResult
