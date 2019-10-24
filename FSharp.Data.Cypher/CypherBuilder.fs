@@ -148,6 +148,8 @@ module private Helpers =
     let typeofUInt32 = typeof<uint32>
     let typeofUInt32List = typeof<uint32 list>
 
+    // TODO: When first wrote this it was needed... not 100% on that now
+    // need to review
     let evalulateVar (varDic : VarDic) (expr : Expr) =
         match expr with
         | NewObject (_, [ _ ]) -> QuotationEvaluator.EvaluateUntyped expr
@@ -157,24 +159,26 @@ module private Helpers =
         | SpecificCall <@@ List.map @@> (_, _, _)
         | SpecificCall <@@ Array.map @@> (_, _, _) -> QuotationEvaluator.EvaluateUntyped expr
         | PropertyGet (Some (Var var), pi, []) ->
-            let expr = varDic.[var.Name]
-            let varObj = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
-            // Need to catch case when there is a let binding to create an object,
-            // followed by a call to a property on that object. Need to handle the params
-            // order much like in record creation code
-            let rec inner expr =
-                match expr with
-                | Let (_, _, expr) -> inner expr
-                | NewRecord (_, _) -> pi.GetValue varObj
-                | _ ->
-                    // In this case the obj is actually Node<'N> or Rel<'R>
-                    // so will need to create an instance of it and call the static member
-                    if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj then
-                        TypeHelpers.createNullRecordOrClass var.Type
-                        |> pi.GetValue
-                    else varObj
+            TypeHelpers.createNullRecordOrClass var.Type
+            |> pi.GetValue
+            //let expr = varDic.[var.Name]
+            //// Need to catch case when there is a let binding to create an object,
+            //// followed by a call to a property on that object. Need to handle the params
+            //// order much like in record creation code
+            //let rec inner expr =
+            //    let varObj() = QuotationEvaluator.EvaluateUntyped varDic.[var.Name]
+            //    match expr with
+            //    | Let (_, _, expr) -> inner expr
+            //    | NewRecord (_, _) -> pi.GetValue(varObj())
+            //    | _ ->
+            //        // In this case the obj is actually Node<'N> or Rel<'R>
+            //        // so will need to create an instance of it and call the static member
+            //        //if Node.IsTypeDefOf varObj || Rel.IsTypeDefOf varObj then
+            //            TypeHelpers.createNullRecordOrClass var.Type
+            //            |> pi.GetValue
+            //        //else varObj
 
-            inner expr
+            //inner expr
 
         | _ -> sprintf "Could not evaluate Var from expression %A" expr |> invalidOp
 
@@ -267,6 +271,8 @@ module private Helpers =
 
 module private BasicClause =
 
+    open Helpers
+
     let make (stepBuilder : StepBuilder) (expr : Expr) =
 
         let extractStatement (exp : Expr) =
@@ -278,6 +284,7 @@ module private BasicClause =
                 stepBuilder.AddStatement "."
                 stepBuilder.AddStatement pi.Name
             | PropertyGet (None, pi, _) -> stepBuilder.AddStatement pi.Name
+            | AS (_, fStatement) -> fStatement stepBuilder
             | _ ->
                 exp
                 |> sprintf "Trying to extract statement but couldn't match expression: %A"
@@ -683,7 +690,7 @@ module CypherBuilder =
     type Query<'T,'Result> = private | Q
 
     /// <summary>Supports the following commands:
-    /// <para>CREATE, DELETE, FOREACH, MERGE, SET</para>
+    /// <para>CREATE, DELETE, FOREACH, MERGE, REMOVE, SET</para>
     /// </summary>
     type ForEach () =
 
@@ -707,6 +714,9 @@ module CypherBuilder =
 
         [<CustomOperation(nameof Clause.SET, MaintainsVariableSpace = true)>]
         member _.SET (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Set) : ForEachQuery<'T> = FEQ
+        
+        [<CustomOperation(nameof Clause.REMOVE, MaintainsVariableSpace = true)>]
+        member _.REMOVE (source : ForEachQuery<'T>, [<ProjectionParameter>] statement : 'T -> 'Remove) : ForEachQuery<'T> = FEQ
 
         member _.Yield (source : 'T) : ForEachQuery<'T> = FEQ
 
@@ -716,7 +726,7 @@ module CypherBuilder =
 
         member _.For (source : AS<#IFSEntity<'T> list>, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
         
-        member _.For (source : #IFSEntity<'T> list, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
+        member _.For (source :#IFSEntity<'T> list, body : 'T -> ForEachQuery<'T>) : ForEachQuery<'T> = FEQ
 
         member _.Quote (source : Expr<ForEachQuery<'T>>) = FEQ
 
@@ -872,9 +882,9 @@ module CypherBuilder =
                 | SpecificCall callExpr (_, _, [ stepAbove ]) -> Some stepAbove
                 | _ -> None
 
-            let (|Remove|_|) (stepBuilder : StepBuilder) (expr : Expr) =
+            let (|Remove|_|) (callExpr : Expr) (stepBuilder : StepBuilder) (expr : Expr) =
                 match expr with
-                | SpecificCall <@@ this.REMOVE @@> (_, _, [ stepAbove; thisStep ]) -> 
+                | SpecificCall callExpr (_, _, [ stepAbove; thisStep ]) -> 
                     RemoveClause.make stepBuilder varDic thisStep
                     Some stepAbove
                 | _ -> None
@@ -927,6 +937,7 @@ module CypherBuilder =
                     | MatchCreateMerge <@@ FOREACH.MERGE @@> stepBuilder stepAbove -> moveToNext Clause.MERGE stepAbove
                     | WhereSet <@@ FOREACH.ON_CREATE_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_CREATE_SET stepAbove
                     | WhereSet <@@ FOREACH.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
+                    | Remove <@@ FOREACH.REMOVE @@> stepBuilder stepAbove -> moveToNext Clause.REMOVE stepAbove
                     | WhereSet <@@ FOREACH.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove
                     | _ -> invalidOp (sprintf "FOREACH. Unmatched Expr: %A" expr)
 
@@ -957,7 +968,7 @@ module CypherBuilder =
                 | WhereSet <@@ this.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
                 | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> stepBuilder stepAbove -> moveToNext Clause.OPTIONAL_MATCH stepAbove
                 | Basic <@@ this.ORDER_BY @@> stepBuilder stepAbove -> moveToNext Clause.ORDER_BY stepAbove
-                | Remove stepBuilder stepAbove -> moveToNext Clause.REMOVE stepAbove
+                | Remove <@@ this.REMOVE @@>stepBuilder stepAbove -> moveToNext Clause.REMOVE stepAbove
                 | Return <@@ this.RETURN @@> stepBuilder stepAbove -> moveToNext Clause.RETURN stepAbove
                 | Return <@@ this.RETURN_DISTINCT @@> stepBuilder stepAbove -> moveToNext Clause.RETURN_DISTINCT stepAbove
                 | WhereSet <@@ this.SET @@> stepBuilder stepAbove -> moveToNext Clause.SET stepAbove

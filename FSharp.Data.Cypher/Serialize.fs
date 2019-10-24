@@ -191,18 +191,33 @@ module Deserialization =
 
     // https://codeblog.jonskeet.uk/2008/08/09/making-reflection-fly-and-exploring-delegates/
     // Or use of quotations as an equvialent
+    // TODO: Change from ResizeArray to List
+    // Add in Relationships lists
+    // Cache the deserilizers / use compiled expressions
+
+    let generateList (listGenericType : Type) items =
+        let emptyList =
+            let uci =
+                Reflection.FSharpType.GetUnionCases(typedefof<_ list>.MakeGenericType [| listGenericType |]) 
+                |> Seq.filter (fun uc -> uc.Name = "Empty") 
+                |> Seq.exactlyOne
+            Reflection.FSharpValue.MakeUnion(uci, [||])
+
+        let cons = emptyList.GetType().GetMethod("Cons")
+    
+        (items, emptyList)
+        ||> Seq.foldBack (fun x list -> cons.Invoke(list, [| x; list|]))
+
     let deserialize (continuation : Generic.IReadOnlyDictionary<string,obj>) (key : string, rtnType : Type) =
         match rtnType with
-        | rtnTyp when isIFSNode rtnTyp -> continuation.[key] :?> INode |> complexTypes rtnType
-        | rtnTyp when rtnTyp.IsGenericType 
-            && rtnTyp.GetGenericTypeDefinition() = typedefof<_ list>
-            && isIFSNode rtnTyp.GenericTypeArguments.[0] ->
+        | rtnType when isIFSNode rtnType -> continuation.[key] :?> INode |> complexTypes rtnType
+        | rtnType when rtnType.IsGenericType 
+            && rtnType.GetGenericTypeDefinition() = typedefof<_ list>
+            && isIFSNode rtnType.GenericTypeArguments.[0] ->
                 continuation.[key] 
                 :?> ResizeArray<obj>
-                |> Seq.cast<INode>
-                |> Seq.map (complexTypes rtnTyp.GenericTypeArguments.[0]) //TODO this needs to be the list type
-                |> List.ofSeq
-                |> box
+                |> Seq.map (fun x -> x :?> INode |> complexTypes rtnType.GenericTypeArguments.[0])
+                |> generateList rtnType.GenericTypeArguments.[0] 
         | rtnTyp when isIFSRel rtnTyp -> continuation.[key] :?> IRelationship |> complexTypes rtnType
         | _ -> coreTypes rtnType key continuation.[key]
         |> fun rtnObj -> Expr.Value(rtnObj, rtnType)
