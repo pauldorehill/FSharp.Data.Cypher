@@ -124,3 +124,60 @@ module ``Can deserialize all`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Wrote>, x))
+
+module ``Aggregations`` =
+    
+    open FSharp.Data.Cypher.Functions
+    open Aggregating
+
+    [<Fact>]
+    let ``Can collect`` () =
+        cypher {
+            for person in Graph.Person do
+            let people = AS<Person list>()
+            MATCH (Node (person, person.Label))
+            RETURN (collect(person) .AS people)
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Person list>, x))
+    
+    [<Fact>]
+    let ``Can count`` () =
+        cypher {
+            for person in Graph.Person do
+            let peopleCount = AS<int64>()
+            MATCH (Node (person, person.Label))
+            RETURN (count(person) .AS peopleCount)
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> Array.head
+        |> fun x -> Assert.IsType(typeof<int64>, x)
+        
+    [<Fact>]
+    let ``Can FOREACH SET AND REMOVE`` () =
+        cypher {
+            for person in Graph.Person do
+            let people = AS<Person list>()
+            MATCH (Node (person, person.Label))
+            WITH (collect(person) .AS people, person)
+            FOREACH { for p in people do SET (p, NodeLabel "ForEach") }
+            RETURN person
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> fun x -> Assert.IsType(typeof<Person []>, x)
+
+        cypher {
+            for person in Graph.Person do
+            let people = AS<Person list>()
+            MATCH (Node (person, person.Label))
+            WITH (collect(person) .AS people, person)
+            FOREACH { for p in people do REMOVE (p, NodeLabel "ForEach") }
+            RETURN person
+        }
+        |> Cypher.run Graph.Driver
+        |> QueryResult.results
+        |> fun x -> Assert.IsType(typeof<Person []>, x)
+    
