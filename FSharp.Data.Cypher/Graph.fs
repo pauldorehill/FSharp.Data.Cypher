@@ -15,7 +15,6 @@ type IFSRel<'R> = inherit IFSEntity<'R>
 [<Sealed; NoComparison; NoEquality>]
 type AS<'T>() =
     member _.AS (variable : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
-    member _.Value : 'T = invalidOp "AS.Value should never be called"
 
 [<AbstractClass; Sealed>]
 type AS =

@@ -60,7 +60,8 @@ module TypeHelpers =
             else
                 let classMaker =
                     ctrs
-                    |> Array.tryPick (fun c -> if c.GetParameters().Length = 0 then Some (fun () -> c.Invoke([||])) else None)
+                    |> Array.tryPick (fun c -> 
+                        if c.GetParameters().Length = 0 then Some (fun () -> c.Invoke([||])) else None)
 
                 match classMaker with
                 | Some classMaker ->

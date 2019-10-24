@@ -89,7 +89,7 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
     member _.RawStatement = rawStatement
     member _.Parameters = parameters
 
-type Query (steps : CypherStep list) =
+type Query(steps : CypherStep list) =
     let sb = Text.StringBuilder()
     let makeQuery (multiline : bool) (parameterized : bool) =
         let add (s : string) = sb.Append s |> ignore
@@ -149,7 +149,7 @@ module Query =
 
     let isWrite (query : Query) = query.IsWrite
 
-type QueryResult<'T>(results : 'T [], summary : IResultSummary) =
+type QueryResult<'T> internal (results : 'T [], summary : IResultSummary) =
     member _.Results = results
     member _.Summary = summary
 
