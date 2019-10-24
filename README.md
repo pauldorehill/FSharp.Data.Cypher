@@ -9,7 +9,7 @@ cypher {
     for person in Graph.Person do
     for actedIn in Graph.ActedIn do
 
-    MATCH (Node(person, person.Label) -- Rel(actedIn.Label) --> Node (movie, movie.Label))
+    MATCH (Node(person, person.Label) -- Rel(actedIn.Label) --> Node(movie, movie.Label))
     WHERE (movie.released < 1984 && person.born < Some 1960 )
     RETURN (movie, person.name)
     LIMIT 1L
@@ -137,7 +137,7 @@ OPTIONAL MATCH currently throws a spanner in the works since it will happily ret
 cypher {
     for person in Graph.Person do
     let people = AS<Person list>()
-    MATCH (Node (person, person.Label))
+    MATCH (Node(person, person.Label))
     WITH (collect(person) .AS people, person)
     FOREACH { for p in people do SET (p, NodeLabel "ForEach") }
     RETURN person
@@ -201,7 +201,7 @@ let driver = GraphDatabase.Driver( ... )
 let results =
     cypher {
         for person in Node<Person>() do
-        MATCH (Node (person))
+        MATCH (Node person)
         RETURN (person)
     }
     |> Cypher.run driver
@@ -217,7 +217,7 @@ The query is sent to the database where it is run and returns the results - **ho
 let transactionResult =
     cypher {
         for person in Node<Person>() do
-        MATCH (Node (person))
+        MATCH (Node person)
         SET (person.name = "NewName")
         RETURN (person)
     }
@@ -251,6 +251,9 @@ There are some other core types allowed with Neo4j e.g. date and times.
 #### Operators
 Mathematical, null, XOR, string matching, regex
 
+#### Import
+Nothing done yet
+
 ## Examples
 
-TODO
+TODO: Match the [Cypher Ref Card](https://neo4j.com/docs/cypher-refcard/current/)

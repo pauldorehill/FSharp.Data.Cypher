@@ -122,12 +122,18 @@ type Node<'N>() =
     new(node : IFSNode<'N>, label : NodeLabel list, nodeWithProperties : IFSNode<'N>) = Node<'N>()
 
     static member ( ---- ) (n1 : Node<'N>, n2 : Node<'N>) = n2
+    
     static member ( ----> ) (node1 : Node<'N>, node2 : Node<'N>) = node2
+    
     static member ( <---- ) (n1 : Node<'N>, n2 : Node<'N>) = n1
-    static member ( -- ) (n : Node<'N>, r : Rel<'R>) = r
-    static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
-    static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
-    static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = r
+
+    //static member ( -- ) (n : Node<'N>, r : Rel<'R>) = n
+
+    //static member ( -- ) (r : Rel<'R>, n : Node<'N>) = n
+
+    //static member ( --> ) (r : Rel<'R>, n : Node<'N>) = n
+
+    //static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = n
 
 [<AbstractClass; Sealed>]
 type Node =
@@ -143,11 +149,11 @@ module Ascii =
     // Quotations cannot contain expressions that make member constraint calls,
     // or uses of operators that implicitly resolve to a member constraint call
 
-    let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1 -- graphEntity2
+    let inline ( -- ) graphEntity1 graphEntity2 = graphEntity1
 
-    let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1 --> graphEntity2
+    let inline ( --> ) graphEntity1 graphEntity2 = graphEntity1
 
-    let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1 <-- graphEntity2
+    let inline ( <-- ) graphEntity1 graphEntity2 = graphEntity1
 
     let inline ( ---- ) node1 node2 = node1 ---- node2
 
