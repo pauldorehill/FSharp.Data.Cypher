@@ -1,6 +1,9 @@
 # FSharp.Data.Cypher
 
 A computation expression that very closely matches the standard Cypher syntax and allows typed Cypher queries in F#.
+
+0.1.0-alpha package available on [NuGet](https://www.nuget.org/packages/FSharp.Data.Cypher/0.1.0-alpha)
+
 #### FSharp
 
 ```fsharp
@@ -35,7 +38,7 @@ LIMIT 1
 ```
 Inspired by this great [article](http://tomasp.net/blog/2015/query-translation/).
 ## Still a work in progess!
-Most clauses are available, working, and have tests. This documentation will also get improved... and a NuGet package.
+Most clauses are available, working, and have tests.
 
 ## Contents
 - [Differences with Cypher](#Differences-with-Cypher)
