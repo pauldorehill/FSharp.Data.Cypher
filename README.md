@@ -2,7 +2,7 @@
 
 A computation expression that very closely matches the standard Cypher syntax and allows typed Cypher queries in F#.
 
-0.1.0-alpha package available on [NuGet](https://www.nuget.org/packages/FSharp.Data.Cypher/0.1.0-alpha)
+0.1.0-alpha package available on [NuGet](https://www.nuget.org/packages/FSharp.Data.Cypher/)
 
 #### FSharp
 
