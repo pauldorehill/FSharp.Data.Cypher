@@ -218,6 +218,7 @@ module private Helpers =
             | _ -> evalulateVar varDic expr :?> NodeLabel list
             |> List.iter (string >> stepBuilder.AddStatement)
     
+    //TODO: Relationships can't be SET/REMOVED
     let (|IsIFSLabelTuple|_|) (expr : Expr) =
         match expr with
         | NewTuple [ entity; label ] when TypeHelpers.isIFS entity.Type && NodeLabel.IsLabel label.Type ->

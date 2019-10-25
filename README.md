@@ -35,7 +35,7 @@ LIMIT 1
 ```
 Inspired by this great [article](http://tomasp.net/blog/2015/query-translation/).
 ## Still a work in progess!
-Most clauses are avalible, working, and have tests. This documentation will also get improved... and a NuGet package.
+Most clauses are available, working, and have tests. This documentation will also get improved... and a NuGet package.
 
 ## Contents
 - [Differences with Cypher](#Differences-with-Cypher)
@@ -147,7 +147,12 @@ cypher {
     for movie in Graph.Movie do
     MATCH (Node(movie, movie.Label, { movie with released = 1975 }))
     SET ((movie, NodeLabel "WATCHED"), (movie, NodeLabel "LIKE"))
-    REMOVE (movie, NodeLabel "MOVIE")
+    RETURN movie
+}
+cypher {
+    for movie in Graph.Movie do
+    MATCH (Node(movie, movie.Label, { movie with released = 1975 }))
+    REMOVE (movie, NodeLabel "WATCHED")
     RETURN movie
 }
 ```

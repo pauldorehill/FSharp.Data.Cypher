@@ -125,8 +125,8 @@ type Query(steps : CypherStep list) =
                 add " "
                 if parameterized then add step.Statement else add step.RawStatement
 
-            if multiline && isForEach then 
-                step.RawStatement.ToCharArray() 
+            if multiline && isForEach then
+                step.RawStatement.ToCharArray()
                 |> Array.rev
                 |> Array.takeWhile ((=) ')')
                 |> Array.iter (fun _ -> unPad())
@@ -149,7 +149,7 @@ type Query(steps : CypherStep list) =
     member _.UncheckedParameters = snd makeParameters
 
 module Query =
-    
+
     let raw (query : Query) = query.Raw
 
     let rawMultiline (query : Query) = query.RawMultiline
@@ -221,6 +221,18 @@ module Cypher =
     // - WriteTransactionAsync() - Add in TransactionConfig()
     // - Back pressure handling on IStatementResultCursor : Not supported currently in dotnet driver
 
+    let query (cypher : Cypher<'T>) = cypher.Query
+
+    let continuation (cypher : Cypher<'T>) = cypher.Continuation
+
+    let iter (action : Cypher<'T> -> unit) (cypher : Cypher<'T>) = action cypher; cypher
+
+    /// Use to pass in dummy test data for testing of RETURN deserilization. Throws when there is no RETURN clause
+    let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
+        match cypher.Continuation with
+        | Some continuation -> continuation di
+        | None -> invalidOp "No RETURN clause given when running spoof."
+
     let private asyncRunTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
         async {
             let session = driver.AsyncSession()
@@ -257,17 +269,7 @@ module Cypher =
 
     let run (driver : IDriver) cypher = runMap driver id cypher
 
-    /// Use to pass in dummy test data for testing of RETURN deserilization. Throws when there is no RETURN clause
-    let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
-        match cypher.Continuation with
-        | Some continuation -> continuation di
-        | None -> invalidOp "No RETURN clause given when running spoof."
-
-    let query (cypher : Cypher<'T>) = cypher.Query
-    
-    let continuation (cypher : Cypher<'T>) = cypher.Continuation
-
-    /// Returns a TransactionResult - where the transaction needs to be 
+    /// Returns a TransactionResult - where the transaction needs to be
     /// commited to the database or rolled back manually
     module Explicit =
 
