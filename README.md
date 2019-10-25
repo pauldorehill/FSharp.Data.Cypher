@@ -4,6 +4,11 @@ A computation expression that very closely matches the standard Cypher syntax an
 #### FSharp
 
 ```fsharp
+open FSharp.Data.Cypher
+open Neo4j.Driver
+
+let driver = GraphDatabase.Driver("bolt://localhost:7687", AuthTokens.None)
+
 cypher {
     for movie in Graph.Movie do
     for person in Graph.Person do
