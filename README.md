@@ -10,7 +10,7 @@ cypher {
     for actedIn in Graph.ActedIn do
 
     MATCH (Node(person, person.Label) -- Rel(actedIn.Label) --> Node(movie, movie.Label))
-    WHERE (movie.released < 1984 && person.born < Some 1960 )
+    WHERE (movie.released < 1984 && person.born < Some 1960)
     RETURN (movie, person.name)
     LIMIT 1L
 }
@@ -129,9 +129,19 @@ cypher {
 }
 ```
 #### Node Labels And Relationship Types
-For nodes labels are defined by the type `NodeLabel` and for relationships the type `RelLabel` (Neo4j calls a relationship label a type, however in the F# world the word type has a different meaning). In cypher relationship types can be or'd with `|`, for F# you can use `/`:
+For nodes labels are defined by the type `NodeLabel` and for relationships the type `RelLabel` (Neo4j calls a relationship label a type, however in the F# world the word type has a different meaning). In cypher relationship types can be or'd with `|`, for F# use `/`:
 ```fsharp
-let labelChoice : RelLabel = RelLabel "Label1" / RelLabel "Label2" //:Label1|:Label2
+let labelChoice : RelLabel = RelLabel "Label1" / RelLabel "Label2" // :Label1|:Label2
+```
+Setting & removing node labels can be done by making a tuple of `(IFSNode<'N>(), NodeLabel)` and passing to the appropiate clause
+```fsharp
+cypher {
+    for movie in Graph.Movie do
+    MATCH (Node(movie, movie.Label, { movie with released = 1975 }))
+    SET ((movie, NodeLabel "WATCHED"), (movie, NodeLabel "LIKE"))
+    REMOVE (movie, NodeLabel "MOVIE")
+    RETURN movie
+}
 ```
 
 ## OPTIONAL MATCH and null
