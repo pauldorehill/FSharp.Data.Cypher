@@ -107,6 +107,7 @@ Rel(n, Label1, { n with { property1 = value1; property2 = value 2 })
 
 #### Operators
 Just double the number of  dashes:
+
 Cypher | FSharp
 --- | ---
 `-` |`--`
