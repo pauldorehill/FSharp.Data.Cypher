@@ -16,6 +16,7 @@ type Clause =
     | DELETE
     | DESC
     | DETACH_DELETE
+    | EXPLAIN
     | FOREACH
     | LIMIT
     | MATCH
@@ -24,6 +25,7 @@ type Clause =
     | ON_MATCH_SET
     | OPTIONAL_MATCH
     | ORDER_BY
+    | PROFILE
     | REMOVE
     | RETURN
     | RETURN_DISTINCT
@@ -54,6 +56,7 @@ type Clause =
         | DELETE -> "DELETE"
         | DESC -> "DESC"
         | DETACH_DELETE -> "DETACH DELETE"
+        | EXPLAIN -> "EXPLAIN"
         | FOREACH -> "FOREACH"
         | LIMIT -> "LIMIT"
         | MATCH -> "MATCH"
@@ -62,6 +65,7 @@ type Clause =
         | ON_MATCH_SET -> "ON MATCH SET"
         | OPTIONAL_MATCH -> "OPTIONAL MATCH"
         | ORDER_BY -> "ORDER BY"
+        | PROFILE -> "PROFILE"
         | REMOVE -> "REMOVE"
         | RETURN -> "RETURN"
         | RETURN_DISTINCT -> "RETURN DISTINCT"
@@ -91,18 +95,6 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
 
 type Query(steps : CypherStep list) =
     let sb = Text.StringBuilder()
-    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
-    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
-    // private as it introduces null
-    let makeParameters =
-        let raw = steps |> List.collect (fun cs -> cs.Parameters)
-        let unchecked =
-            raw
-            |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
-            |> dict
-            |> Generic.Dictionary
-        raw, unchecked
-
     let makeQuery (multiline : bool) (parameterized : bool) =
         let add (s : string) = sb.Append s |> ignore
         let mutable count : int = 1
@@ -145,8 +137,7 @@ type Query(steps : CypherStep list) =
     member _.Raw = makeQuery false false
     member _.RawMultiline = makeQuery true false
     member _.IsWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
-    member _.Parameters : ParameterList = fst makeParameters
-    member _.UncheckedParameters = snd makeParameters
+    member _.Parameters : ParameterList = steps |> List.collect (fun cs -> cs.Parameters)
 
 module Query =
 
@@ -233,11 +224,20 @@ module Cypher =
         | Some continuation -> continuation di
         | None -> invalidOp "No RETURN clause given when running spoof."
 
+    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
+    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
+    // keep as private as it introduces null
+    let private makeParameters (cypher : Cypher<'T>) =
+        cypher.Query.Parameters
+        |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
+        |> dict
+        |> Generic.Dictionary
+
     let private asyncRunTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
         async {
             let session = driver.AsyncSession()
             try
-                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, cypher.Query.UncheckedParameters)
+                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, makeParameters cypher)
 
                 let! statementCursor =
                     if cypher.Query.IsWrite
@@ -276,7 +276,7 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
-                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, cypher.Query.UncheckedParameters) |> Async.AwaitTask
+                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, makeParameters cypher) |> Async.AwaitTask
 
                 let! results =
                     match cypher.Continuation with

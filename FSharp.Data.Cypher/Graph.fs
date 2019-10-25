@@ -140,7 +140,7 @@ type Node<'N>() =
     
     static member ( <-- ) (n : Node<'N>, r : Rel<'R>) = r
     
-    static member ( <-- ) (n : Node<'N>, n2 : Node<'R>) = n // Need this due to operator precedence of -- over <--
+    static member ( <-- ) (n : Node<'N>, n2 : Node<'N2>) = n // Need this due to operator precedence of -- over <--
 
 [<AbstractClass; Sealed>]
 type Node =

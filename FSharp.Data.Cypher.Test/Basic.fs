@@ -186,3 +186,35 @@ module ``Can build`` =
         |> Cypher.query
         |> Query.raw
         |> fun q -> Assert.Equal("UNION ALL", q)
+
+namespace FSharp.Data.Cypher.Test.PROFILE
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` =
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            PROFILE
+        }
+        |> Cypher.query
+        |> Query.raw
+        |> fun q -> Assert.Equal("PROFILE", q)
+
+namespace FSharp.Data.Cypher.Test.EXPLAIN
+
+open FSharp.Data.Cypher
+open Xunit
+
+module ``Can build`` =
+
+    [<Fact>]
+    let ``Statement`` () =
+        cypher {
+            EXPLAIN
+        }
+        |> Cypher.query
+        |> Query.raw
+        |> fun q -> Assert.Equal("EXPLAIN", q)

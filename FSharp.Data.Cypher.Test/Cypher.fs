@@ -1,4 +1,4 @@
-﻿namespace FSharp.Data.Cypher.Test.MovieGraph
+﻿namespace FSharp.Data.Cypher.Test.Query
 
 
 open System

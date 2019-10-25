@@ -195,4 +195,39 @@ module ``Operator Testing`` =
         |> Cypher.run Graph.Driver
         |> QueryResult.results
         |> fun xs -> Assert.All(xs, fun x -> Assert.IsType(typeof<Movie>, x))
+
+module Profiling =
+
+    [<Fact>]
+    let ``Can EXPLAIN`` () =
+        cypher {
+            for movie in Graph.Movie do
+            EXPLAIN
+            MATCH (Node(movie, movie.Label, { movie with released = 1975 }))
+            RETURN movie
+        }
+        |> Cypher.iter (Cypher.query >> Query.parameterizedMultiline >> printfn "%s")
+        |> Cypher.run Graph.Driver
+        |> QueryResult.summary
+        |> fun r ->
+            Assert.True r.HasPlan
+            Assert.NotNull r.Plan
+            Assert.False r.HasProfile
+            Assert.Null r.Profile
     
+    [<Fact>]
+    let ``Can PROFILE`` () =
+        cypher {
+            for movie in Graph.Movie do
+            PROFILE
+            MATCH (Node(movie, movie.Label, { movie with released = 1975 }))
+            RETURN movie
+        }
+        |> Cypher.iter (Cypher.query >> Query.parameterizedMultiline >> printfn "%s")
+        |> Cypher.run Graph.Driver
+        |> QueryResult.summary
+        |> fun r -> 
+            Assert.True r.HasPlan
+            Assert.NotNull r.Plan
+            Assert.True r.HasProfile
+            Assert.NotNull r.Profile

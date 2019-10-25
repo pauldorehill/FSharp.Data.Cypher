@@ -38,7 +38,7 @@ LIMIT 1
 ```
 Inspired by this great [article](http://tomasp.net/blog/2015/query-translation/).
 ## Still a work in progess!
-Most clauses are available, working, and have tests.
+Most clauses are available, working, and have tests. The way `IFSNode<'N>` / `Node<'N>` & `IFSRel<'R>` / `Rel<'R>` work together; and the abstract member requirements on the interfaces are being explored and so could change.
 
 ## Contents
 - [Differences with Cypher](#Differences-with-Cypher)
@@ -49,12 +49,18 @@ Most clauses are available, working, and have tests.
 - [Running a Query](#Running-a-Query)
 - [Not yet supported](#Not-yet-supported)
 - [Type Provider](#Type-Provider)
+- [Setup](#Setup)
 - [Examples](#Examples)
 
 ## Differences With Cypher
 
-The intent is to stay a close as possible to the cypher syntax: if you can write [cypher](https://neo4j.com/docs/cypher-refcard/current/) you are pretty much set.
-Each `cypher` builder must start with 1 or more `for entity in Graph do` statements where where the `entity` needs to be of type `Node<'N>` where `'N :> IFSNode<'N>`, or `Rel<'R>` where `'R :> IFSRel<'R>`. For the example above that can look like:
+The intent is to stay a close as possible to the cypher syntax: if you can write [cypher](https://neo4j.com/docs/cypher-refcard/current/) you are pretty much set. Its a fairly flexible as to how you define your types to work with the builder, but a good starting point is:
+- Impliment `IFSNode<'N>` or `IFSREl<'R>` on your graph types
+- Define a graph type of static members of `Node<'N>` & `Rel<'R>`
+- Use `for entity in Graph do` for each
+- The `entity` needs to be of type `Node<'N>` where `'N :> IFSNode<'N>`, or `Rel<'R>` where `'R :> IFSRel<'R>`.
+
+For the example above that can look like:
 
 ```fsharp
 type Movie =
@@ -113,6 +119,7 @@ In the F# builder match these 3 parts as parameters to a `Rel()` constructor:
 ```fsharp
 Rel(n, Label1, { n with { property1 = value1; property2 = value 2 })
 ```
+
 #### Paths
 Not currently implemented as I'm considering the best approach: its complicated by the return of a `IPath` which contains lists of `INode` & `IRelationship`.
 
@@ -128,7 +135,6 @@ Cypher | FSharp
 `()-[]->()`|`Node() -- Rel() --> Node()`
 
 #### AS
-
 To use name aliases (required for aggregating and other functions) there is the `AS<'T>()` type with a member to `AS : AS<'T> -> 'T`. The variable is defined up front then passed into the `AS` member:
 
 ```fsharp
@@ -169,7 +175,7 @@ Unfortunately from an F# perspective [null](https://neo4j.com/docs/cypher-manual
 OPTIONAL MATCH currently throws a spanner in the works since it will happily return `null` in place of node or relationship. When this is returned from the database the deserilizer will still be expecting a node, sees `null` and will intentionally throw `ArgumentNullException`. There is a nice solution coming for this where the OPTIONAL MATCH query will only work with a record option... coming soon.
 
 ## FOREACH Clause
-[FOREACH](https://neo4j.com/docs/cypher-manual/current/clauses/foreach/) is a special type of clause in cypher... as such it is implemented as its own builder of type `Foreach`. It is then used inside the `cypher {  }` builder and `ForEach`'s can be nested within other `ForEach`'s
+[FOREACH](https://neo4j.com/docs/cypher-manual/current/clauses/foreach/) is a special type of clause in cypher... as such it is implemented as its own builder of type `Foreach`. It is then used inside the `cypher` builder and `ForEach`'s can be nested within other `ForEach`'s
 ```fsharp
 cypher {
     for person in Graph.Person do
@@ -280,7 +286,7 @@ let rollBack : unit = TransactionResult.rollback transactionResult
 e.g. `MATCH (n)-[r:DIRECTED]-(m) SET n = $allProperties`. Easy to do... just not had time.
 
 #### Clauses
-Constraints, query profiling, indexes, case expressions, stored proceedures.
+Constraints, indexes, case expressions, stored proceedures.
 
 #### Paths
 No support for `Paths`, though I have something in mind.
@@ -289,7 +295,7 @@ No support for `Paths`, though I have something in mind.
 Lots... not much done here.
 
 #### Types
-There are some other core types allowed with Neo4j e.g. date and times.
+There are some other core types allowed with Neo4j e.g. date and times. Also add something for just returning a `dictionary` + `labels`.
 
 #### Operators
 Mathematical, null, XOR, string matching, regex
@@ -300,6 +306,12 @@ Nothing done yet
 ## Type Provider
 
 It could be possible to have typed access to the graph using a [Type Provider](https://docs.microsoft.com/en-us/dotnet/fsharp/tutorials/type-providers/)... but no time for that just yet. A starting point may be a script that could be run to generate all the types based of a graph.
+
+## Setup
+The test project expects a local graph to be running on:
+- `bolt://localhost:7687`
+- No authentication `AuthTokens.None`
+- The `Movie Graph` loaded `:play movie-graph`
 
 ## Examples
 

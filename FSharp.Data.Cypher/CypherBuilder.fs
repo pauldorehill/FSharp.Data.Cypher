@@ -754,6 +754,9 @@ module CypherBuilder =
         [<CustomOperation(nameof Clause.DETACH_DELETE, MaintainsVariableSpace = true)>]
         member _.DETACH_DELETE (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'Delete) : Query<'T,'Result> = Q
 
+        [<CustomOperation(nameof Clause.EXPLAIN, MaintainsVariableSpace = true)>]
+        member _.EXPLAIN (source : Query<'T,'Result>) : Query<'T,'Result> = Q
+
         [<CustomOperation(nameof Clause.LIMIT, MaintainsVariableSpace = true)>]
         member _.LIMIT (source : Query<'T,'Result>, count : int64) : Query<'T,'Result> = Q
 
@@ -776,6 +779,9 @@ module CypherBuilder =
 
         [<CustomOperation(nameof Clause.ORDER_BY, MaintainsVariableSpace = true)>]
         member _.ORDER_BY (source : Query<'T,'Result>, [<ProjectionParameter>] f : 'T -> 'Key) : Query<'T,'Result> = Q
+
+        [<CustomOperation(nameof Clause.PROFILE, MaintainsVariableSpace = true)>]
+        member _.PROFILE (source : Query<'T,'Result>) : Query<'T,'Result> = Q
 
         [<CustomOperation(nameof Clause.RETURN, MaintainsVariableSpace = true)>]
         member _.RETURN (source : Query<'T,'Result>, [<ProjectionParameter>] statement : 'T -> 'FinalResult) : Query<'T,'FinalResult> = Q
@@ -962,6 +968,7 @@ module CypherBuilder =
                 | Basic <@@ this.DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DELETE stepAbove
                 | NoStatement <@@ this.DESC @@> stepAbove -> moveToNext Clause.DESC stepAbove
                 | Basic <@@ this.DETACH_DELETE @@> stepBuilder stepAbove -> moveToNext Clause.DETACH_DELETE stepAbove
+                | NoStatement <@@ this.EXPLAIN @@> stepAbove -> moveToNext Clause.EXPLAIN stepAbove
                 | Basic <@@ this.LIMIT @@> stepBuilder stepAbove -> moveToNext Clause.LIMIT stepAbove
                 | MatchCreateMerge <@@ this.MATCH @@> stepBuilder stepAbove -> moveToNext Clause.MATCH stepAbove
                 | MatchCreateMerge <@@ this.MERGE @@> stepBuilder stepAbove -> moveToNext Clause.MERGE stepAbove
@@ -969,6 +976,7 @@ module CypherBuilder =
                 | WhereSet <@@ this.ON_MATCH_SET @@> stepBuilder stepAbove -> moveToNext Clause.ON_MATCH_SET stepAbove
                 | MatchCreateMerge <@@ this.OPTIONAL_MATCH @@> stepBuilder stepAbove -> moveToNext Clause.OPTIONAL_MATCH stepAbove
                 | Basic <@@ this.ORDER_BY @@> stepBuilder stepAbove -> moveToNext Clause.ORDER_BY stepAbove
+                | NoStatement <@@ this.PROFILE @@> stepAbove -> moveToNext Clause.PROFILE stepAbove
                 | Remove <@@ this.REMOVE @@>stepBuilder stepAbove -> moveToNext Clause.REMOVE stepAbove
                 | Return <@@ this.RETURN @@> stepBuilder stepAbove -> moveToNext Clause.RETURN stepAbove
                 | Return <@@ this.RETURN_DISTINCT @@> stepBuilder stepAbove -> moveToNext Clause.RETURN_DISTINCT stepAbove
