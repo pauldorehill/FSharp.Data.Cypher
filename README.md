@@ -110,6 +110,8 @@ In the F# builder match these 3 parts as parameters to a `Rel()` constructor:
 ```fsharp
 Rel(n, Label1, { n with { property1 = value1; property2 = value 2 })
 ```
+#### Paths
+Not currently implemented as I'm considering the best approach: its complicated by the return of a `IPath` which contains lists of `INode` & `IRelationship`.
 
 #### Operators
 Just double the number of  dashes:
@@ -289,7 +291,7 @@ Nothing done yet
 
 ## Type Provider
 
-It could be possible to have typed access to the graph using a [Type Provider](https://docs.microsoft.com/en-us/dotnet/fsharp/tutorials/type-providers/)... but no time fo that just yet. A starting point may be a script that could be run to generate all the types based of a graph.
+It could be possible to have typed access to the graph using a [Type Provider](https://docs.microsoft.com/en-us/dotnet/fsharp/tutorials/type-providers/)... but no time for that just yet. A starting point may be a script that could be run to generate all the types based of a graph.
 
 ## Examples
 

@@ -9,7 +9,7 @@ open Xunit
 open GraphDomains.MovieGraph
 
 module ``Multi Line Queries`` =
-    
+
     open FSharp.Data.Cypher.Functions
     open Aggregating
 
@@ -23,13 +23,13 @@ module ``Multi Line Queries`` =
         }
         |> Cypher.query
         |> Query.rawMultiline
-        |> fun x -> 
+        |> fun x ->
             Assert.Equal(
                 [ "MATCH (person:Person)"
                   "WITH person"
                   "RETURN person" ]
                 |> String.concat Environment.NewLine, x)
-    
+
     [<Fact>]
     let ``Can make multiline parameterized`` () =
         let r =
@@ -55,7 +55,7 @@ module ``Multi Line Queries`` =
 
         Assert.Equal(rtn, r.Query.ParameterizedMultiline)
         Assert.Equal(ps, Seq.ofList r.Query.Parameters)
-    
+
     [<Fact>]
     let ``FOREACH correctly indented`` () =
         cypher {
@@ -63,16 +63,16 @@ module ``Multi Line Queries`` =
             let people = AS<Person list>()
             MATCH (Node (person, person.Label))
             WITH (collect(person) .AS people, person)
-            FOREACH { 
-                for p in people do 
-                SET (p, NodeLabel "ForEach") 
-                SET (p, NodeLabel "ForEach") 
+            FOREACH {
+                for p in people do
+                SET (p, NodeLabel "ForEach")
+                SET (p, NodeLabel "ForEach")
             }
             RETURN person
         }
         |> Cypher.query
         |> Query.rawMultiline
-        |> fun x -> 
+        |> fun x ->
             Assert.Equal(
                 [ "MATCH (person:Person)"
                   "WITH collect(person) AS people, person"
@@ -88,18 +88,18 @@ module ``Multi Line Queries`` =
             let people = AS<Person list>()
             MATCH (Node (person, person.Label))
             WITH (collect(person) .AS people, person)
-            FOREACH { 
-                for p in people do 
-                SET (p, NodeLabel "ForEach") 
+            FOREACH {
+                for p in people do
                 SET (p, NodeLabel "ForEach")
-                FOREACH { 
-                    for p in people do 
-                    SET (p, NodeLabel "ForEach") 
+                SET (p, NodeLabel "ForEach")
+                FOREACH {
+                    for p in people do
                     SET (p, NodeLabel "ForEach")
-                    FOREACH { 
-                        for p in people do 
-                        SET (p, NodeLabel "ForEach") 
-                        SET (p, NodeLabel "ForEach") 
+                    SET (p, NodeLabel "ForEach")
+                    FOREACH {
+                        for p in people do
+                        SET (p, NodeLabel "ForEach")
+                        SET (p, NodeLabel "ForEach")
                     }
                 }
             }
@@ -107,7 +107,7 @@ module ``Multi Line Queries`` =
         }
         |> Cypher.query
         |> Query.rawMultiline
-        |> fun x -> 
+        |> fun x ->
             Assert.Equal(
                 [ "MATCH (person:Person)"
                   "WITH collect(person) AS people, person"
@@ -119,6 +119,6 @@ module ``Multi Line Queries`` =
                   "        SET p:ForEach"
                   "        FOREACH (p IN people |"
                   "            SET p:ForEach"
-                  "            SET p:ForEach)))" 
+                  "            SET p:ForEach)))"
                   "RETURN person" ]
                 |> String.concat Environment.NewLine, x)
