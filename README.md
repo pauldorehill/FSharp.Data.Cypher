@@ -45,6 +45,7 @@ Most clauses are avalible, working, and have tests. This documentation will also
 - [Parameterization](#Parameterization)
 - [Running a Query](#Running-a-Query)
 - [Not yet supported](#Not-yet-supported)
+- [Type Provider](#Type-Provider)
 - [Examples](#Examples)
 
 ## Differences With Cypher
@@ -208,13 +209,13 @@ Is sent to the database as
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie) WHERE movie.released < $p01 AND person.born < $p02 RETURN movie, person.name LIMIT $p00
 ```
-with a `dictionary` of `[("p02", 1960); ("p01", 1984); ("p00", 1L)]`. The raw multiline version:
+with a `dictionary` of `[("p02", 1960); ("p01", 1984); ("p00", 1L)]`. The multiline version:
 
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie)
-WHERE movie.released < 1984 AND person.born < 1960
+WHERE movie.released < $p01 AND person.born < $p02
 RETURN movie, person.name
-LIMIT 1
+LIMIT $p00
 ```
 
 ## Running a Query
@@ -264,6 +265,10 @@ let rollBack : unit = TransactionResult.rollback transactionResult
 
 ## Not yet supported
 
+#### Setting of all Node/Relationship Properties
+
+e.g. `MATCH (n)-[r:DIRECTED]-(m) SET n = $allProperties`. Easy to do... just not had time.
+
 #### Clauses
 Constraints, query profiling, indexes, case expressions, stored proceedures.
 
@@ -281,6 +286,10 @@ Mathematical, null, XOR, string matching, regex
 
 #### Import
 Nothing done yet
+
+## Type Provider
+
+It could be possible to have typed access to the graph using a [Type Provider](https://docs.microsoft.com/en-us/dotnet/fsharp/tutorials/type-providers/)... but no time fo that just yet. A starting point may be a script that could be run to generate all the types based of a graph.
 
 ## Examples
 
