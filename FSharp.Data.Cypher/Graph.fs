@@ -2,16 +2,6 @@
 
 open System
 
-// Used to get FOREACH to be happy..
-/// Marker interface for a type that is part of the graph
-type IFSEntity<'T> = interface end
-
-/// Marker interface for a type that is a Node
-type IFSNode<'N> = inherit IFSEntity<'N>
-
-/// Marker interface for a type that is a Relationship
-type IFSRel<'R> = inherit IFSEntity<'R>
-
 [<Sealed; NoComparison; NoEquality>]
 type AS<'T>() =
     member _.AS (variable : AS<'T>) : 'T = invalidOp "AS.AS should never be called"
@@ -50,6 +40,22 @@ type RelLabel(label : string) =
     static member get_Zero() = RelLabel "" // TODO: here to allow use of sumBy: not sure if I should keep
     override this.ToString() = this.Value
     static member IsLabel (typ : Type) = typ = typeof<RelLabel>
+
+// Used to get FOREACH to be happy
+/// Marker interface for a type that is part of the graph
+type IFSEntity<'T> = interface end
+
+/// Marker interface for a type that is a Node
+/// Nodes can have no label, a single label, or multiple labels
+type IFSNode<'N> =
+    inherit IFSEntity<'N>
+    abstract member Labels : NodeLabel list option
+
+/// Marker interface for a type that is a Relationship
+/// Relationships must have a single Label (or Type as per offical Docs)
+type IFSRel<'R> = 
+    inherit IFSEntity<'R>
+    abstract member Label : RelLabel
 
 /// Match any Relationship
 [<Sealed; NoComparison; NoEquality>]

@@ -10,7 +10,7 @@ open Xunit
 
 module Node =
 
-    let node = { new IFSNode<'N> }
+    let node = { new IFSNode<'N> with member _.Labels = None }
 
     let label = "NodeLabel"
 
@@ -22,8 +22,9 @@ module Node =
         { StringValue : string
           IntValue : int
           FloatValue : float }
-        interface IFSNode<NodeType>
         member _.Label = NodeLabel label
+        interface IFSNode<NodeType> with
+            member this.Labels = Some [ this.Label ]
         static member StaticLabel = NodeLabel label
 
     type Graph =
@@ -424,16 +425,15 @@ module Node =
 
 module Relationship =
 
-    let rel = { new IFSRel<'R> }
-
     let label = "REL_LABEL"
-
     let relLabel = RelLabel label
+    let rel = { new IFSRel<'R> with member _.Label = relLabel}
 
     type RelType =
         { Value : string }
-        interface IFSRel<RelType>
         member _.Label = RelLabel label
+        interface IFSRel<RelType>
+            with member this.Label = this.Label
         static member StaticLabel = RelLabel label
         member _.IntLabel = 3u
         static member IntLabelList = [ 0u .. 3u ]

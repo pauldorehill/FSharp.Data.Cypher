@@ -91,6 +91,18 @@ type CypherStep(clause : Clause, statement : string, rawStatement : string, para
 
 type Query(steps : CypherStep list) =
     let sb = Text.StringBuilder()
+    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
+    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
+    // private as it introduces null
+    let makeParameters =
+        let raw = steps |> List.collect (fun cs -> cs.Parameters)
+        let unchecked =
+            raw
+            |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
+            |> dict
+            |> Generic.Dictionary
+        raw, unchecked
+
     let makeQuery (multiline : bool) (parameterized : bool) =
         let add (s : string) = sb.Append s |> ignore
         let mutable count : int = 1
@@ -133,7 +145,8 @@ type Query(steps : CypherStep list) =
     member _.Raw = makeQuery false false
     member _.RawMultiline = makeQuery true false
     member _.IsWrite = steps |> List.exists (fun x -> x.Clause.IsWrite)
-    member _.Parameters = steps |> List.collect (fun cs -> cs.Parameters)
+    member _.Parameters : ParameterList = fst makeParameters
+    member _.UncheckedParameters = snd makeParameters
 
 module Query =
     
@@ -201,15 +214,6 @@ type Cypher<'T> internal (continuation, query) =
 
 module Cypher =
 
-    // Neo4j Driver is not happy unless this is Dictionary - doesn't like some F# collections even though implement IDictionary
-    // it will give Neo4j.Driver.V1.ServiceUnavailableException: Unexpected end of stream, read returned 0
-    // private as it introduces null
-    let private makeParameters (cypher : Cypher<'T>) =
-        cypher.Query.Parameters
-        |> List.map (fun (k, v) -> k, if v.IsNone then null else v.Value)
-        |> dict
-        |> Generic.Dictionary
-
     // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
     // Should I use array / parallel here? Lots of reflecion so may be worth while
     // TODO: Moved to 4.0 driver
@@ -221,7 +225,7 @@ module Cypher =
         async {
             let session = driver.AsyncSession()
             try
-                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, makeParameters cypher)
+                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, cypher.Query.UncheckedParameters)
 
                 let! statementCursor =
                     if cypher.Query.IsWrite
@@ -270,7 +274,7 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
-                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, makeParameters cypher) |> Async.AwaitTask
+                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, cypher.Query.UncheckedParameters) |> Async.AwaitTask
 
                 let! results =
                     match cypher.Continuation with

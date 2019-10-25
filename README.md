@@ -52,19 +52,22 @@ type Movie =
     { title : string
       tagline : string option
       released : int }
-    member _.Label = NodeLabel "Movie" // The node label is stored here for convenience
-    interface IFSNode<Movie> // Currently these are just marker interfaces
+    member _.Label = NodeLabel "Movie"
+    interface IFSNode<Movie> with
+        member this.Labels = Some [ this.Label ]
 
 type Person =
     { born : int option
       name : string }
     member _.Label = NodeLabel "Person"
-    interface IFSNode<Person>
+    interface IFSNode<Person> with
+        member this.Labels = Some [ this.Label ]
 
 type ActedIn =
     { roles : string [] }
     member _.Label = RelLabel "ACTED_IN"
-    interface IFSRel<ActedIn>
+    interface IFSRel<ActedIn> with
+        member this.Label = this.Label
 
 // Define the complete graph if you so wish
 // Futher down the track a script that can generate all the graph types, or typeprovider could be plugged in
@@ -76,6 +79,7 @@ cypher {
     for movie in Graph.Movie do
     for person in Graph.Person do
     for actedIn in Node<ActedIn>() do // Or Simply wrap the type in the builder
+    ()
 }
 
 ```
@@ -123,6 +127,12 @@ cypher {
     RETURN (count(person) .AS totalPeople) // Pass it to the AS method on the function
 }
 ```
+#### Node Labels And Relationship Types
+For nodes labels are defined by the type `NodeLabel` and for relationships the type `RelLabel` (Neo4j calls a relationship label a type, however in the F# world the word type has a different meaning). In cypher relationship types can be or'd with `|`, for F# you can use `/`:
+```fsharp
+let labelChoice : RelLabel = RelLabel "Label1" / RelLabel "Label2" //:Label1|:Label2
+```
+
 ## OPTIONAL MATCH and null
 
 Unfortunately from an F# perspective [null](https://neo4j.com/docs/cypher-manual/current/syntax/working-with-null/) is *'...is used to represent missing or undefined values...'* and this has the potential to all null into your program. With core types (`string, int, float etc...`):
@@ -157,11 +167,13 @@ Records should be the default since they allow the update syntax which is used w
 type Follows =
     | NA
     member _.Label = RelLabel "FOLLOWS"
-    interface IFSRel<Follows>
+    interface IFSRel<Follows> with
+        member this.Label = this.Label
 
 type Produced() =
     member _.Label = RelLabel "PRODUCED"
-    interface IFSRel<Produced>
+    interface IFSRel<Produced> with
+        member this.Label = this.Label
 ```
 Some support for DUs will be implemented at a later date... classes are harder still.
 
@@ -198,7 +210,7 @@ These are automatically committed to the database
 
 ```fsharp
 let driver = GraphDatabase.Driver( ... )
-let results =
+let result =
     cypher {
         for person in Node<Person>() do
         MATCH (Node person)

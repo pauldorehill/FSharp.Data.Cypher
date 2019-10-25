@@ -183,7 +183,8 @@ module ``All allowed Types on a Record`` =
           boolList : bool List
           boolArray : bool array
           boolSet : bool Set }
-        interface IFSNode<AllAllowed>
+        interface IFSNode<AllAllowed> with
+            member _.Labels = None
 
     let baseList =
         [ "string", box "EMU"
