@@ -39,8 +39,6 @@ type Clause =
     | YIELD // Not in Builder
     // Constraints:
     // CREATE CONSTRAINT ON, DROP CONSTRAINT ON, ASSERT, IS UNIQUE
-    // Query profiling:
-    // PROFILE, EXPLAIN
     // Indexes:
     // CREATE INDEX ON, DROP INDEX ON
     // Case:
@@ -153,6 +151,8 @@ module Query =
 
     let isWrite (query : Query) = query.IsWrite
 
+    let map (mapper : Query -> Query) (query : Query) = mapper query
+
 type QueryResult<'T> internal (results : 'T [], summary : IResultSummary) =
     member _.Results = results
     member _.Summary = summary
@@ -170,16 +170,25 @@ type TransactionResult<'T>(results : 'T [], summary : IResultSummary, session : 
     member _.Transaction = transaction
     member this.AsyncCommit() =
         async {
-            do! this.Transaction.CommitAsync() |> Async.AwaitTask
-            do! this.Session.CloseAsync() |> Async.AwaitTask
-            return QueryResult(this.Results, this.Summary)
+            try
+                do! this.Transaction.CommitAsync() |> Async.AwaitTask
+                return QueryResult(this.Results, this.Summary)
+
+            finally
+                this.Session.CloseAsync() 
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
         }
     member this.Commit() = this.AsyncCommit() |> Async.RunSynchronously
     member this.AsyncRollback() =
         async {
-            do! this.Transaction.RollbackAsync() |> Async.AwaitTask
-            do! this.Session.CloseAsync() |> Async.AwaitTask
-            return ()
+            try
+                do! this.Transaction.RollbackAsync() |> Async.AwaitTask
+
+            finally
+                this.Session.CloseAsync() 
+                |> Async.AwaitTask
+                |> Async.RunSynchronously
         }
     member this.Rollback() = this.AsyncRollback() |> Async.RunSynchronously
 
@@ -206,17 +215,17 @@ type Cypher<'T> internal (continuation, query) =
 module Cypher =
 
     // https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions-access-mode
-    // Should I use array / parallel here? Lots of reflecion so may be worth while
-    // TODO: Moved to 4.0 driver
+    // TODO: 
+    // Moved to 4.0 driver
     // - AsyncSession() - Add in session Config() options? Or expose passing in the session?
     // - WriteTransactionAsync() - Add in TransactionConfig()
     // - Back pressure handling on IStatementResultCursor : Not supported currently in dotnet driver
-
+    
     let query (cypher : Cypher<'T>) = cypher.Query
 
     let continuation (cypher : Cypher<'T>) = cypher.Continuation
 
-    let iter (action : Cypher<'T> -> unit) (cypher : Cypher<'T>) = action cypher; cypher
+    let map (mapper : Cypher<'T> ->  Cypher<'T>) (cypher : Cypher<'T>) = mapper cypher
 
     /// Use to pass in dummy test data for testing of RETURN deserilization. Throws when there is no RETURN clause
     let spoof (di : Generic.IReadOnlyDictionary<string, obj>) (cypher : Cypher<'T>) =
@@ -233,26 +242,41 @@ module Cypher =
         |> dict
         |> Generic.Dictionary
 
+    // Currently wraps in lazy then uses Array.Parallel
+    // Tested various ways, and mapping the list to lazy was the fastest
+    // 100K 3 field records take ~ 5s to retrieve from Neo4j & deserialize. Non-paralled takes around 10s.
+    // The cost of parallel seems negligible on small data sets & quickly benefits
+    let private makeResults (statementCursor : IStatementResultCursor) (map : 'T -> 'U) (cypher : Cypher<'T>) =
+        async {
+            let! lazyResults =
+                match cypher.Continuation with
+                | Some continuation -> 
+                    statementCursor.ToListAsync(fun record -> lazy (record.Values |> continuation |> map)) 
+                    |> Async.AwaitTask
+                | None -> async.Return(ResizeArray())
+
+            let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
+            
+            let results = lazyResults |> Seq.toArray |> Array.Parallel.map (fun r -> r.Value)
+            
+            return (results, summary)
+        }
+
     let private asyncRunTransaction (driver : IDriver) (map : 'T -> 'U) (cypher : Cypher<'T>) =
         async {
             let session = driver.AsyncSession()
             try
-                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.Parameterized, makeParameters cypher)
-
+                let run (t : IAsyncTransaction) = t.RunAsync(cypher.Query.ParameterizedMultiline, makeParameters cypher)
+                
                 let! statementCursor =
-                    if cypher.Query.IsWrite
+                    if cypher.Query.IsWrite 
                     then session.WriteTransactionAsync run
                     else session.ReadTransactionAsync run
                     |> Async.AwaitTask
-
-                let! results =
-                    match cypher.Continuation with
-                    | Some continuation -> statementCursor.ToListAsync(fun record -> continuation record.Values |> map) |> Async.AwaitTask
-                    | None -> async.Return(ResizeArray())
-
-                let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
-
-                return QueryResult(Seq.toArray results, summary)
+                
+                let! (results, summary) = makeResults statementCursor map cypher
+                
+                return QueryResult(results, summary)
 
             finally
                 session.CloseAsync()
@@ -276,16 +300,11 @@ module Cypher =
         let private runTransaction (session : IAsyncSession) (map : 'T -> 'U) (cypher : Cypher<'T>) =
             async {
                 let! transaction = session.BeginTransactionAsync() |> Async.AwaitTask
-                let! statementCursor = transaction.RunAsync(cypher.Query.Parameterized, makeParameters cypher) |> Async.AwaitTask
-
-                let! results =
-                    match cypher.Continuation with
-                    | Some continuation ->
-                        statementCursor.ToListAsync(fun record -> continuation record.Values |> map) |> Async.AwaitTask
-                    | None -> async.Return(ResizeArray())
-
-                let! summary = statementCursor.SummaryAsync() |> Async.AwaitTask
-
+                
+                let! statementCursor = transaction.RunAsync(cypher.Query.ParameterizedMultiline, makeParameters cypher) |> Async.AwaitTask
+                
+                let! (results, summary) = makeResults statementCursor map cypher
+                
                 return TransactionResult(Array.ofSeq results, summary, session, transaction)
             }
 

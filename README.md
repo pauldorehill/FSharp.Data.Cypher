@@ -1,11 +1,9 @@
-# FSharp.Data.Cypher
-
+# F# + Cypher
 A computation expression that very closely matches the standard Cypher syntax and allows typed Cypher queries in F#.
 
 0.1.0-alpha package available on [NuGet](https://www.nuget.org/packages/FSharp.Data.Cypher/)
 
 #### FSharp
-
 ```fsharp
 open FSharp.Data.Cypher
 open Neo4j.Driver
@@ -29,6 +27,7 @@ cypher {
 //        tagline = Some "If he's crazy, what does that make you?"
 //        released = 1975 }, "Danny DeVito")|]
 ```
+
 #### Cypher
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie)
@@ -37,6 +36,7 @@ RETURN movie, person.name
 LIMIT 1
 ```
 Inspired by this great [article](http://tomasp.net/blog/2015/query-translation/).
+
 ## Still a work in progess!
 Most clauses are available, working, and have tests. The way `IFSNode<'N>` / `Node<'N>` & `IFSRel<'R>` / `Rel<'R>` work together; and the abstract member requirements on the interfaces are being explored and so could change.
 
@@ -53,15 +53,12 @@ Most clauses are available, working, and have tests. The way `IFSNode<'N>` / `No
 - [Examples](#Examples)
 
 ## Differences With Cypher
-
 The intent is to stay a close as possible to the cypher syntax: if you can write [cypher](https://neo4j.com/docs/cypher-refcard/current/) you are pretty much set. Its a fairly flexible as to how you define your types to work with the builder, but a good starting point is:
-- Impliment `IFSNode<'N>` or `IFSREl<'R>` on your graph types
-- Define a graph type of static members of `Node<'N>` & `Rel<'R>`
-- Use `for entity in Graph do` for each
-- The `entity` needs to be of type `Node<'N>` where `'N :> IFSNode<'N>`, or `Rel<'R>` where `'R :> IFSRel<'R>`.
+- Impliment `IFSNode<'N>` or `IFSRel<'R>` on your graph types
+- Define a graph type of static members of `Node<'N>` where `'N :> IFSNode<'N>` & `Rel<'R>` where `'R :> IFSRel<'R>`.
+- Use a `for entity in Graph.Entity do` to unwrap the graph and use in the query
 
 For the example above that can look like:
-
 ```fsharp
 type Movie =
     { title : string
@@ -96,8 +93,8 @@ cypher {
     for actedIn in Node<ActedIn>() do // Or Simply wrap the type in the builder
     ()
 }
-
 ```
+
 #### Nodes
 In cypher a node `(..)` consists of 3 optional parts: the `binding name`, a `label` or list of `labels`, and `property values`:
 
@@ -106,7 +103,7 @@ In cypher a node `(..)` consists of 3 optional parts: the `binding name`, a `lab
 In the F# builder match these 3 parts as parameters to a `Node()` constructor:
 
 ```fsharp
-Node(n, Label1, { n with { property1 = value1; property2 = value 2 })
+Node(n, Label1, { n with { property1 = value1; property2 = value2 })
 ```
 
 #### Relationships
@@ -117,7 +114,7 @@ In cypher a relationship `[..]` consists of 3 optional parts: the `binding name`
 In the F# builder match these 3 parts as parameters to a `Rel()` constructor:
 
 ```fsharp
-Rel(n, Label1, { n with { property1 = value1; property2 = value 2 })
+Rel(n, Label1, { n with { property1 = value1; property2 = value2 })
 ```
 
 #### Paths
@@ -167,12 +164,21 @@ cypher {
 ```
 
 ## OPTIONAL MATCH and null
-
 Unfortunately from an F# perspective [null](https://neo4j.com/docs/cypher-manual/current/syntax/working-with-null/) is *'...is used to represent missing or undefined values...'* and this has the potential to all null into your program. With core types (`string, int, float etc...`):
 - If null is encountered an `ArgumentNullException` will be thrown i.e. you won't be able to create a `record` with a null field, or return a core type of null
 - If your `record` field  or return type is an `'T option`,  `null` will happily become `None`
 
 OPTIONAL MATCH currently throws a spanner in the works since it will happily return `null` in place of node or relationship. When this is returned from the database the deserilizer will still be expecting a node, sees `null` and will intentionally throw `ArgumentNullException`. There is a nice solution coming for this where the OPTIONAL MATCH query will only work with a record option... coming soon.
+
+Some issues using `=`, `<>`, `None` & `null` also need to be resolved. For example the expectations may be different:
+```fsharp
+// In Neo4j
+"" <> null = null
+// In F#
+"" <> null = true
+// This needs to be translated and sent to neo4j as
+"" IS NOT NULL = true
+```
 
 ## FOREACH Clause
 [FOREACH](https://neo4j.com/docs/cypher-manual/current/clauses/foreach/) is a special type of clause in cypher... as such it is implemented as its own builder of type `Foreach`. It is then used inside the `cypher` builder and `ForEach`'s can be nested within other `ForEach`'s
@@ -188,7 +194,6 @@ cypher {
 ```
 
 ## Supported Types
-
 Currently you can only use F# record types, parameterless classes, or single case fieldless DUs. These complex types can be  built from the following core types:
 
 `string, int32, int64, float, bool`
@@ -208,11 +213,10 @@ type Produced() =
     interface IFSRel<Produced> with
         member this.Label = this.Label
 ```
-Some support for DUs will be implemented at a later date... classes are harder still.
+Some support for DUs will be implemented at a later date... classes are harder still. The serialization / deserialization code has some improvements to go, but its pretty robust for now.
 
 ## Parameterization
-
-All queries are parameterized by default and sent as a single line of text. You are able to access both the raw and parameterized query by calling the `Query` member on `CypherBuilder` (and their equivalent multiline versions). For the example at the top:
+All queries are parameterized by default and sent as a multiline of text (easier to troubleshoot when Neo4j doesn't like the query). You are able to access both the raw and parameterized query by calling the `Query` member on `CypherBuilder`. For the example at the top:
 
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie)
@@ -221,21 +225,16 @@ RETURN movie, person.name
 LIMIT 1
 ```
 Is sent to the database as
-
-```
-MATCH (person:Person)-[:ACTED_IN]->(movie:Movie) WHERE movie.released < $p01 AND person.born < $p02 RETURN movie, person.name LIMIT $p00
-```
-with a `dictionary` of `[("p02", 1960); ("p01", 1984); ("p00", 1L)]`. The multiline version:
-
 ```
 MATCH (person:Person)-[:ACTED_IN]->(movie:Movie)
 WHERE movie.released < $p01 AND person.born < $p02
 RETURN movie, person.name
 LIMIT $p00
 ```
+with a `dictionary` of `[("p02", 1960); ("p01", 1984); ("p00", 1L)]`. If `Option.None` is used that will be sent to the database as `null`
+
 
 ## Running a Query
-
 To run a query you need a `IDriver` instance from the standard `Neo4j.Driver` driver. Queries come in two flavours see the [docs](https://neo4j.com/docs/driver-manual/1.7/sessions-transactions/#driver-transactions) for more info.
 
 #### Transaction Functions : `Cypher<'T> -> QueryResult<'T>`
@@ -282,7 +281,6 @@ let rollBack : unit = TransactionResult.rollback transactionResult
 ## Not yet supported
 
 #### Setting of all Node/Relationship Properties
-
 e.g. `MATCH (n)-[r:DIRECTED]-(m) SET n = $allProperties`. Easy to do... just not had time.
 
 #### Clauses
@@ -298,13 +296,12 @@ Lots... not much done here.
 There are some other core types allowed with Neo4j e.g. date and times. Also add something for just returning a `dictionary` + `labels`.
 
 #### Operators
-Mathematical, null, XOR, string matching, regex
+Mathematical, null, XOR, string matching, regex.
 
 #### Import
 Nothing done yet
 
 ## Type Provider
-
 It could be possible to have typed access to the graph using a [Type Provider](https://docs.microsoft.com/en-us/dotnet/fsharp/tutorials/type-providers/)... but no time for that just yet. A starting point may be a script that could be run to generate all the types based of a graph.
 
 ## Setup
@@ -314,5 +311,4 @@ The test project expects a local graph to be running on:
 - The `Movie Graph` loaded `:play movie-graph`
 
 ## Examples
-
 TODO: Match the [Cypher Ref Card](https://neo4j.com/docs/cypher-refcard/current/)
